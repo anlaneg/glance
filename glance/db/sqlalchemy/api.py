@@ -245,12 +245,14 @@ def _check_image_id(image_id):
         raise exception.ImageNotFound()
 
 
+#通过image_id获取image记录
 def _image_get(context, image_id, session=None, force_show_deleted=False):
     """Get an image or raise if it does not exist."""
     _check_image_id(image_id)
     session = session or get_session()
 
     try:
+        #通过id索引
         query = session.query(models.Image).options(
             sa_orm.joinedload(models.Image.properties)).options(
                 sa_orm.joinedload(
@@ -1252,10 +1254,12 @@ def _image_tag_delete_all(context, image_id, delete_time=None, session=None):
     return tags_updated_count
 
 
+#获取指定image的所有tag
 def image_tag_get_all(context, image_id, session=None):
     """Get a list of tags for a specific image."""
     _check_image_id(image_id)
     session = session or get_session()
+    #查询tag表
     tags = session.query(models.ImageTag.value).filter_by(
         image_id=image_id).filter_by(deleted=False).all()
     return [tag[0] for tag in tags]

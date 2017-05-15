@@ -26,7 +26,9 @@ import glance.location
 import glance.notifier
 import glance.quota
 
-
+#数据库向上实际上有好多层，比如在存入一个image时，需要检查配额，需要检查策略
+#需要在执行成功后，发送通知等待，这个gateway就是将这些步骤粘合起的一个类，通过
+#面向对象的多态，手工在各函数调用的路径上进行多层的封装（这种处理方法很有意思）
 class Gateway(object):
     def __init__(self, db_api=None, store_api=None, notifier=None,
                  policy_enforcer=None):
@@ -40,10 +42,13 @@ class Gateway(object):
         image_factory = glance.domain.ImageFactory()
         store_image_factory = glance.location.ImageFactoryProxy(
             image_factory, context, self.store_api, self.store_utils)
+        #配额包装层
         quota_image_factory = glance.quota.ImageFactoryProxy(
             store_image_factory, context, self.db_api, self.store_utils)
+        #策略包装层
         policy_image_factory = policy.ImageFactoryProxy(
             quota_image_factory, context, self.policy)
+        #通知包装层
         notifier_image_factory = glance.notifier.ImageFactoryProxy(
             policy_image_factory, context, self.notifier)
         if property_utils.is_property_protection_enabled():
@@ -68,13 +73,18 @@ class Gateway(object):
         return authorized_image_factory
 
     def get_repo(self, context):
+        #生成数据库操作对象
         image_repo = glance.db.ImageRepo(context, self.db_api)
+        #？？？
         store_image_repo = glance.location.ImageRepoProxy(
             image_repo, context, self.store_api, self.store_utils)
+        #包装上配额检查
         quota_image_repo = glance.quota.ImageRepoProxy(
             store_image_repo, context, self.db_api, self.store_utils)
+        #包装上策略检查
         policy_image_repo = policy.ImageRepoProxy(
             quota_image_repo, context, self.policy)
+        #包装上消息通知
         notifier_image_repo = glance.notifier.ImageRepoProxy(
             policy_image_repo, context, self.notifier)
         if property_utils.is_property_protection_enabled():
@@ -84,6 +94,7 @@ class Gateway(object):
             authorized_image_repo = authorization.ImageRepoProxy(
                 pir, context)
         else:
+            #简单起点，我们认为没有开启，再封装一层
             authorized_image_repo = authorization.ImageRepoProxy(
                 notifier_image_repo, context)
 

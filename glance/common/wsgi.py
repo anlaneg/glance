@@ -852,6 +852,7 @@ class APIMapper(routes.Mapper):
         return routes.Mapper.routematch(self, url, environ)
 
 
+#拒绝对某资源执行某个http方法
 class RejectMethodController(object):
     def reject(self, req, allowed_methods, *args, **kwargs):
         LOG.debug("The method %s is not allowed for this resource",
@@ -894,6 +895,7 @@ class Router(object):
         self._router = routes.middleware.RoutesMiddleware(self._dispatch,
                                                           self.map)
 
+    #api入口地址
     @classmethod
     def factory(cls, global_conf, **local_conf):
         return cls(APIMapper())
@@ -918,9 +920,11 @@ class Router(object):
         if not match:
             implemented_http_methods = ['GET', 'HEAD', 'POST', 'PUT',
                                         'DELETE', 'PATCH']
+            #当前仅支持GET,HEAD,等方法
             if req.environ['REQUEST_METHOD'] not in implemented_http_methods:
                 return webob.exc.HTTPNotImplemented()
             else:
+                #没有找到对应的controller
                 return webob.exc.HTTPNotFound()
         app = match['controller']
         return app
@@ -1142,17 +1146,20 @@ class Resource(object):
     def __call__(self, request):
         """WSGI method that controls (de)serialization and method dispatch."""
         action_args = self.get_action_args(request.environ)
+        #取出对应的action
         action = action_args.pop('action', None)
         body_reject = strutils.bool_from_string(
             action_args.pop('body_reject', None))
 
         try:
+            #如果拒绝body,则返回失败
             if body_reject and self.deserializer.has_body(request):
                 msg = _('A body is not expected with this request.')
                 raise webob.exc.HTTPBadRequest(explanation=msg)
             deserialized_request = self.dispatch(self.deserializer,
                                                  action, request)
             action_args.update(deserialized_request)
+            #尝试采用controller分发
             action_result = self.dispatch(self.controller, action,
                                           request, **action_args)
         except webob.exc.WSGIHTTPException as e:
@@ -1171,6 +1178,7 @@ class Resource(object):
             return response
 
         try:
+            #进行响应
             response = webob.Response(request=request)
             self.dispatch(self.serializer, action, response, action_result)
             # encode all headers in response to utf-8 to prevent unicode errors

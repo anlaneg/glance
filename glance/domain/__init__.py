@@ -53,6 +53,7 @@ class ImageFactory(object):
                             'direct_url', 'self', 'file', 'schema']
 
     def _check_readonly(self, kwargs):
+        #kwargs中有self._readonly_properties的key，则异常
         for key in self._readonly_properties:
             if key in kwargs:
                 raise exception.ReadonlyProperty(property=key)
@@ -63,6 +64,7 @@ class ImageFactory(object):
             raise TypeError(msg % kwargs.keys())
 
     def _check_reserved(self, properties):
+        #properties中有self._reserved_properties的key,则异常
         if properties is not None:
             for key in self._reserved_properties:
                 if key in properties:
@@ -78,11 +80,12 @@ class ImageFactory(object):
         self._check_reserved(extra_properties)
 
         if image_id is None:
-            image_id = str(uuid.uuid4())
+            image_id = str(uuid.uuid4()) #生成uuid
         created_at = timeutils.utcnow()
         updated_at = created_at
         status = 'queued'
 
+        #构造一个Image实例
         return Image(image_id=image_id, name=name, status=status,
                      created_at=created_at, updated_at=updated_at,
                      visibility=visibility, min_disk=min_disk,

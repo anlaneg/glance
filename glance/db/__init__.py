@@ -35,6 +35,7 @@ CONF.import_opt('metadata_encryption_key', 'glance.common.config')
 
 
 def get_api():
+    #载入api模块，如果有configure函数，则调用此接口，并返回
     api = importutils.import_module(CONF.data_api)
     if hasattr(api, 'configure'):
         api.configure()
@@ -57,24 +58,30 @@ IMAGE_ATTRS = BASE_MODEL_ATTRS | set(['name', 'status', 'size', 'virtual_size',
                                       'protected'])
 
 
+#对外提供针对image的数据库增删除改查
 class ImageRepo(object):
 
     def __init__(self, context, db_api):
         self.context = context
         self.db_api = db_api
 
+    #通过image_id查找某个image的信息
     def get(self, image_id):
         try:
+            #自数据库中查找image信息
             db_api_image = dict(self.db_api.image_get(self.context, image_id))
+            #表项已删除处理
             if db_api_image['deleted']:
                 raise exception.ImageNotFound()
         except (exception.ImageNotFound, exception.Forbidden):
             msg = _("No image found with ID %s") % image_id
             raise exception.ImageNotFound(msg)
+        #取image的所有tages
         tags = self.db_api.image_tag_get_all(self.context, image_id)
         image = self._format_image_from_db(db_api_image, tags)
         return ImageProxy(image, self.context, self.db_api)
 
+    #按条件列出合乎要求的image信息
     def list(self, marker=None, limit=None, sort_key=None,
              sort_dir=None, filters=None, member_status='accepted'):
         sort_key = ['created_at'] if not sort_key else sort_key
@@ -102,6 +109,7 @@ class ImageRepo(object):
             key = CONF.metadata_encryption_key
             for l in locations:
                 l['url'] = crypt.urlsafe_decrypt(key, l['url'])
+        #利用数据库中查询到的数据，填充Image对象
         return glance.domain.Image(
             image_id=db_image['id'],
             name=db_image['name'],
@@ -155,6 +163,7 @@ class ImageRepo(object):
         }
 
     def add(self, image):
+        #将image对象转为可用于存入数据库的字典
         image_values = self._format_image_to_db(image)
         if (image_values['size'] is not None
            and image_values['size'] > CONF.image_size_cap):
@@ -162,12 +171,15 @@ class ImageRepo(object):
         # the updated_at value is not set in the _format_image_to_db
         # function since it is specific to image create
         image_values['updated_at'] = image.updated_at
+        #写入image表及lcations表
         new_values = self.db_api.image_create(self.context, image_values)
+        #写tags表
         self.db_api.image_tag_set_all(self.context,
                                       image.image_id, image.tags)
         image.created_at = new_values['created_at']
         image.updated_at = new_values['updated_at']
 
+    #image更新
     def save(self, image, from_state=None):
         image_values = self._format_image_to_db(image)
         if (image_values['size'] is not None

@@ -35,6 +35,7 @@ CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 
+#针对add,save操作会安装acl规则
 class ImageRepoProxy(glance.domain.proxy.Repo):
 
     def __init__(self, image_repo, context, store_api, store_utils):

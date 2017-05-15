@@ -16,9 +16,11 @@
 
 
 def _proxy(target, attr):
+    #取属性，类似于：get self.target.attr
     def get_attr(self):
         return getattr(getattr(self, target), attr)
 
+    #置属性，类似于：set self.target.attr
     def set_attr(self, value):
         return setattr(getattr(self, target), attr, value)
 
@@ -28,17 +30,23 @@ def _proxy(target, attr):
     return property(get_attr, set_attr, del_attr)
 
 
+#提供代理或者不代理方法
 class Helper(object):
     def __init__(self, proxy_class=None, proxy_kwargs=None):
+        #代理类，代理参数
         self.proxy_class = proxy_class
         self.proxy_kwargs = proxy_kwargs or {}
 
     def proxy(self, obj):
+        #如果obj没有，或者代理类没有，则返回obj
         if obj is None or self.proxy_class is None:
             return obj
+        #实例化代理类，并传入代理参数
         return self.proxy_class(obj, **self.proxy_kwargs)
 
     def unproxy(self, obj):
+        #不代理返回obj,如果obj不存在，或者代理类不存在，则返回obj
+        #否则直接返回obj.base
         if obj is None or self.proxy_class is None:
             return obj
         return obj.base
@@ -77,29 +85,35 @@ class TaskStubRepo(object):
         return [self.task_stub_proxy_helper.proxy(task) for task in tasks]
 
 
+#针对get,list,add,save,delete操作将结果构造为proxy_class实例
 class Repo(object):
     def __init__(self, base, item_proxy_class=None, item_proxy_kwargs=None):
         self.base = base
         self.helper = Helper(item_proxy_class, item_proxy_kwargs)
 
     def get(self, item_id):
+        #采用base.get获得item,然后将其构造为prox_class的实例
         return self.helper.proxy(self.base.get(item_id))
 
     def list(self, *args, **kwargs):
+        #采用base.list获得items,然后将其逐个构造为proxy_class的实例
         items = self.base.list(*args, **kwargs)
         return [self.helper.proxy(item) for item in items]
 
     def add(self, item):
+        #拿到item,然后使base.add获得result,并将其构造为proxy_class的实例
         base_item = self.helper.unproxy(item)
         result = self.base.add(base_item)
         return self.helper.proxy(result)
 
     def save(self, item, from_state=None):
+        #同add
         base_item = self.helper.unproxy(item)
         result = self.base.save(base_item, from_state=from_state)
         return self.helper.proxy(result)
 
     def remove(self, item):
+        #同add
         base_item = self.helper.unproxy(item)
         result = self.base.remove(base_item)
         return self.helper.proxy(result)

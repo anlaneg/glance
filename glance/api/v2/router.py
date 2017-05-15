@@ -32,16 +32,22 @@ class API(wsgi.Router):
 
     """WSGI router for Glance v2 API requests."""
 
+    #定义各api对应的路由（使其于对应的类相互映射）
     def __init__(self, mapper):
+        #载入schema-image.json
         custom_image_properties = images.load_custom_properties()
+        #声明reject Controller
         reject_method_resource = wsgi.Resource(wsgi.RejectMethodController())
 
         schemas_resource = schemas.create_resource(custom_image_properties)
+        #'/schemas/image'将匹配schemas_resource这个controller,并调用其对应的方法'image'
+        #对此路径的匹配限制是，方法必须为'GET'
         mapper.connect('/schemas/image',
                        controller=schemas_resource,
                        action='image',
                        conditions={'method': ['GET']},
                        body_reject=True)
+        #除GET方法外，其它均调用reject_method_resource的reject方法
         mapper.connect('/schemas/image',
                        controller=reject_method_resource,
                        action='reject',
@@ -392,11 +398,14 @@ class API(wsgi.Router):
                        action='reject',
                        allowed_methods='GET, POST, PUT, DELETE')
 
+        #创建对image操作的Controller
         images_resource = images.create_resource(custom_image_properties)
+        #将get方法映射至'index'
         mapper.connect('/images',
                        controller=images_resource,
                        action='index',
                        conditions={'method': ['GET']})
+        #将post方法映射到'create'
         mapper.connect('/images',
                        controller=images_resource,
                        action='create',

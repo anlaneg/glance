@@ -83,6 +83,7 @@ def _enforce_image_location_quota(image, locations, is_setter=False):
                                                    maximum=maximum)
 
 
+#在save,add操作前进行配额检查
 class ImageRepoProxy(glance.domain.proxy.Repo):
 
     def __init__(self, image_repo, context, db_api, store_utils):
@@ -94,6 +95,7 @@ class ImageRepoProxy(glance.domain.proxy.Repo):
                                              item_proxy_class=ImageProxy,
                                              item_proxy_kwargs=proxy_kwargs)
 
+    # 检查是否超过配额
     def _enforce_image_property_quota(self, attempted):
         if CONF.image_property_quota < 0:
             # If value is negative, allow unlimited number of properties

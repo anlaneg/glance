@@ -87,6 +87,7 @@ class ImagesController(object):
 
         return image
 
+    #http get方法处理
     def index(self, req, marker=None, limit=None, sort_key=None,
               sort_dir=None, filters=None, member_status='accepted'):
         sort_key = ['created_at'] if not sort_key else sort_key
@@ -124,6 +125,7 @@ class ImagesController(object):
         result['images'] = images
         return result
 
+    #通过gateway拿到repo对象,调用get拿到数据库中的数据
     def show(self, req, image_id):
         image_repo = self.gateway.get_repo(req.context)
         try:
@@ -140,15 +142,17 @@ class ImagesController(object):
     def update(self, req, image_id, changes):
         image_repo = self.gateway.get_repo(req.context)
         try:
+            #取到对象
             image = image_repo.get(image_id)
 
+            #遍历执行changes函数组
             for change in changes:
                 change_method_name = '_do_%s' % change['op']
                 change_method = getattr(self, change_method_name)
                 change_method(req, image, change)
 
             if changes:
-                image_repo.save(image)
+                image_repo.save(image) #保存生效
         except exception.NotFound as e:
             raise webob.exc.HTTPNotFound(explanation=e.msg)
         except (exception.Invalid, exception.BadStoreUri) as e:
@@ -233,7 +237,7 @@ class ImagesController(object):
         image_repo = self.gateway.get_repo(req.context)
         try:
             image = image_repo.get(image_id)
-            image.delete()
+            image.delete() #这个函数调用的是？
             image_repo.remove(image)
         except (glance_store.Forbidden, exception.Forbidden) as e:
             LOG.debug("User not permitted to delete image '%s'", image_id)
@@ -1006,6 +1010,7 @@ def get_collection_schema(custom_properties=None):
     return glance.schema.CollectionSchema('images', image_schema)
 
 
+#加载'schema-image.json'文件，并返回其对应的内容
 def load_custom_properties():
     """Find the schema properties files and load them into a dict."""
     filename = 'schema-image.json'
@@ -1026,5 +1031,6 @@ def create_resource(custom_properties=None):
     schema = get_schema(custom_properties)
     deserializer = RequestDeserializer(schema)
     serializer = ResponseSerializer(schema)
+    #创建ImagesController
     controller = ImagesController()
     return wsgi.Resource(controller, deserializer, serializer)
