@@ -77,3 +77,5 @@ to focus on for the upcoming release. You can see image service plans:
 For more information about the Glance project please see:
 
 * `Glance Project <https://launchpad.net/glance/>`_
+
+glance模块非常简单，其实现的功能也较少，通过api向后传递数据（保存在数据库和backend中backend中目前常用rbd)
