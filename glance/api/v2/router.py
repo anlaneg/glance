@@ -454,7 +454,7 @@ class API(wsgi.Router):
                        action='reject',
                        allowed_methods='POST')
 
-        #image数据
+        #image数据的上传下载
         image_data_resource = image_data.create_resource()
         mapper.connect('/images/{image_id}/file',
                        controller=image_data_resource,
