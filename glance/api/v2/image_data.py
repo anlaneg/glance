@@ -90,6 +90,7 @@ class ImageDataController(object):
         refresher = None
         cxt = req.context
         try:
+            #通过image_id获得image
             image = image_repo.get(image_id)
             image.status = 'saving'
             try:
@@ -112,6 +113,7 @@ class ImageDataController(object):
                                      "Use the existing user token."),
                                  encodeutils.exception_to_unicode(e))
 
+                #保存saving状态
                 image_repo.save(image, from_state='queued')
                 image.set_data(data, size)
 

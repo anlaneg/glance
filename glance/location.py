@@ -430,6 +430,7 @@ class ImageProxy(glance.domain.proxy.Image):
         else:
             verifier = None
 
+        #将数据存入
         location, size, checksum, loc_meta = self.store_api.add_to_backend(
             CONF,
             self.image.image_id,
@@ -467,6 +468,7 @@ class ImageProxy(glance.domain.proxy.Image):
         err = None
         for loc in self.image.locations:
             try:
+                #自backend中取数据
                 data, size = self.store_api.get_from_backend(
                     loc['url'],
                     offset=offset,

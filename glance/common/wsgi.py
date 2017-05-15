@@ -581,6 +581,7 @@ class Server(object):
         self.client_socket_timeout = CONF.client_socket_timeout or None
         self.configure_socket(old_conf, has_changed)
         if self.initialize_glance_store:
+            #初始化glance_store(为什么要把这两个项目分开，没有看到分开的理由）
             initialize_glance_store()
 
     def reload(self):
