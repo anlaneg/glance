@@ -1038,11 +1038,14 @@ class TestMetadefsControllers(base.IsolatedUnitTest):
         request = unit_test_utils.get_fake_request('/metadefs/namespaces/'
                                                    'Namespace3/'
                                                    'properties')
-        request.body = jsonutils.dump_as_bytes({'name': 'a' * 256})
+        request.body = jsonutils.dump_as_bytes({
+            'name': 'a' * 81, 'type': 'string', 'title': 'fake'})
 
-        self.assertRaises(webob.exc.HTTPBadRequest,
-                          self.property_deserializer.create,
-                          request)
+        exc = self.assertRaises(webob.exc.HTTPBadRequest,
+                                self.property_deserializer.create,
+                                request)
+        self.assertIn("Failed validating 'maxLength' in "
+                      "schema['properties']['name']", exc.explanation)
 
     def test_property_create_with_4byte_character(self):
         request = unit_test_utils.get_fake_request()
@@ -1223,6 +1226,16 @@ class TestMetadefsControllers(base.IsolatedUnitTest):
                           PROPERTY1, property)
         self.assertNotificationsLog([])
 
+    def test_property_update_with_overlimit_name(self):
+        request = unit_test_utils.get_fake_request()
+        request.body = jsonutils.dump_as_bytes({
+            'name': 'a' * 81, 'type': 'string', 'title': 'fake'})
+        exc = self.assertRaises(webob.exc.HTTPBadRequest,
+                                self.property_deserializer.create,
+                                request)
+        self.assertIn("Failed validating 'maxLength' in "
+                      "schema['properties']['name']", exc.explanation)
+
     def test_property_update_with_4byte_character(self):
         request = unit_test_utils.get_fake_request(tenant=TENANT3)
 
@@ -1392,15 +1405,38 @@ class TestMetadefsControllers(base.IsolatedUnitTest):
         self.assertEqual([], object.required)
         self.assertEqual({}, object.properties)
 
+    def test_object_create_invalid_properties(self):
+        request = unit_test_utils.get_fake_request('/metadefs/namespaces/'
+                                                   'Namespace3/'
+                                                   'objects')
+        body = {
+            "name": "My Object",
+            "description": "object1 description.",
+            "properties": {
+                "property1": {
+                    "type": "integer",
+                    "title": "property",
+                    "description": "property description",
+                    "test-key": "test-value",
+                }
+            }
+        }
+        request.body = jsonutils.dump_as_bytes(body)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.deserializer.create,
+                          request)
+
     def test_object_create_overlimit_name(self):
         request = unit_test_utils.get_fake_request('/metadefs/namespaces/'
                                                    'Namespace3/'
                                                    'objects')
-        request.body = jsonutils.dump_as_bytes({'name': 'a' * 256})
+        request.body = jsonutils.dump_as_bytes({'name': 'a' * 81})
 
-        self.assertRaises(webob.exc.HTTPBadRequest,
-                          self.deserializer.create,
-                          request)
+        exc = self.assertRaises(webob.exc.HTTPBadRequest,
+                                self.deserializer.create,
+                                request)
+        self.assertIn("Failed validating 'maxLength' in "
+                      "schema['properties']['name']", exc.explanation)
 
     def test_object_create_duplicate(self):
         request = unit_test_utils.get_fake_request()
@@ -1552,6 +1588,15 @@ class TestMetadefsControllers(base.IsolatedUnitTest):
         self.assertRaises(webob.exc.HTTPBadRequest,
                           self.object_controller.update, request,
                           object, NAMESPACE1, OBJECT1)
+
+    def test_object_update_with_overlimit_name(self):
+        request = unit_test_utils.get_fake_request()
+        request.body = jsonutils.dump_as_bytes(
+            {"properties": {}, "name": "a" * 81, "required": []})
+        exc = self.assertRaises(webob.exc.HTTPBadRequest,
+                                self.deserializer.update, request)
+        self.assertIn("Failed validating 'maxLength' in "
+                      "schema['properties']['name']", exc.explanation)
 
     def test_object_update_conflict(self):
         request = unit_test_utils.get_fake_request(tenant=TENANT3)
@@ -1885,9 +1930,11 @@ class TestMetadefsControllers(base.IsolatedUnitTest):
     def test_tag_create_overlimit_name(self):
         request = unit_test_utils.get_fake_request()
 
-        self.assertRaises(webob.exc.HTTPBadRequest,
-                          self.tag_controller.create,
-                          request, NAMESPACE1, 'a' * 256)
+        exc = self.assertRaises(webob.exc.HTTPBadRequest,
+                                self.tag_controller.create,
+                                request, NAMESPACE1, 'a' * 81)
+        self.assertIn("Failed validating 'maxLength' in "
+                      "schema['properties']['name']", exc.explanation)
 
     def test_tag_create_with_4byte_character(self):
         request = unit_test_utils.get_fake_request()
@@ -2033,6 +2080,15 @@ class TestMetadefsControllers(base.IsolatedUnitTest):
                           self.tag_controller.update, request, tag,
                           NAMESPACE1, TAG1)
 
+    def test_tag_update_with_name_overlimit(self):
+        request = unit_test_utils.get_fake_request()
+        request.body = jsonutils.dump_as_bytes(
+            {"properties": {}, "name": "a" * 81, "required": []})
+        exc = self.assertRaises(webob.exc.HTTPBadRequest,
+                                self.deserializer.update, request)
+        self.assertIn("Failed validating 'maxLength' in "
+                      "schema['properties']['name']", exc.explanation)
+
     def test_tag_update_conflict(self):
         request = unit_test_utils.get_fake_request(tenant=TENANT3)
 
@@ -2064,3 +2120,16 @@ class TestMetadefsControllers(base.IsolatedUnitTest):
                           self.tag_controller.update, request, tag,
                           NAMESPACE4, TAG1)
         self.assertNotificationsLog([])
+
+
+class TestMetadefNamespaceResponseSerializers(base.IsolatedUnitTest):
+
+    def setUp(self):
+        super(TestMetadefNamespaceResponseSerializers, self).setUp()
+        self.serializer = namespaces.ResponseSerializer(schema={})
+        self.response = mock.Mock()
+        self.result = mock.Mock()
+
+    def test_delete_tags(self):
+        self.serializer.delete_tags(self.response, self.result)
+        self.assertEqual(204, self.response.status_int)

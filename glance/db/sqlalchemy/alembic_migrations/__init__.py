@@ -20,6 +20,7 @@ from alembic import command as alembic_command
 from alembic import config as alembic_config
 from alembic import migration as alembic_migration
 from alembic import script as alembic_script
+from sqlalchemy import MetaData, Table
 from oslo_db import exception as db_exception
 from oslo_db.sqlalchemy import migration as sqla_migration
 
@@ -44,6 +45,25 @@ def get_current_alembic_heads():
     with engine.connect() as conn:
         context = alembic_migration.MigrationContext.configure(conn)
         heads = context.get_current_heads()
+
+        def update_alembic_version(old, new):
+            """Correct alembic head in order to upgrade DB using EMC method.
+
+            :param:old: Actual alembic head
+            :param:new: Expected alembic head to be updated
+            """
+            meta = MetaData(engine)
+            alembic_version = Table('alembic_version', meta, autoload=True)
+            alembic_version.update().values(
+                version_num=new).where(
+                alembic_version.c.version_num == old).execute()
+
+        if ("pike01" in heads):
+            update_alembic_version("pike01", "pike_contract01")
+        elif ("ocata01" in heads):
+            update_alembic_version("ocata01", "ocata_contract01")
+
+        heads = context.get_current_heads()
         return heads
 
 
@@ -52,7 +72,7 @@ def get_current_legacy_head():
         legacy_head = sqla_migration.db_version(db_api.get_engine(),
                                                 db_migration.MIGRATE_REPO_PATH,
                                                 db_migration.INIT_VERSION)
-    except db_exception.DbMigrationError:
+    except db_exception.DBMigrationError:
         legacy_head = None
     return legacy_head
 

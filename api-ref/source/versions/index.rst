@@ -24,6 +24,20 @@ Image Service Versions
 Version History
 ***************
 
+**Rocky changes**
+
+- version 1.1 is DELETED
+- version 1.0 is DELETED
+
+**Queens changes**
+
+- version 2.6 is CURRENT
+- version 2.5 is SUPPORTED
+
+**Pike changes**
+
+- version 2.6 is EXPERIMENTAL
+
 **Ocata changes**
 
 - version 2.5 is CURRENT
@@ -51,7 +65,7 @@ Version History
 - version 2.1 is CURRENT
 - version 2.0 is SUPPORTED
 
-**Folson changes**
+**Folsom changes**
 
 - version 2.0 is CURRENT
 

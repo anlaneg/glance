@@ -104,8 +104,10 @@ class Image(object):
         # NOTE(flwang): In v2, we are deprecating the 'killed' status, so it's
         # allowed to restore image from 'saving' to 'queued' so that upload
         # can be retried.
-        'queued': ('saving', 'active', 'deleted'),
+        'queued': ('saving', 'uploading', 'importing', 'active', 'deleted'),
         'saving': ('active', 'killed', 'deleted', 'queued'),
+        'uploading': ('importing', 'queued', 'deleted'),
+        'importing': ('active', 'deleted', 'queued'),
         'active': ('pending_delete', 'deleted', 'deactivated'),
         'killed': ('deleted',),
         'pending_delete': ('deleted',),
@@ -151,7 +153,8 @@ class Image(object):
                 LOG.debug(e)
                 raise e
 
-            if self._status == 'queued' and status in ('saving', 'active'):
+            if self._status in ('queued', 'uploading') and status in (
+                    'saving', 'active', 'importing'):
                 missing = [k for k in ['disk_format', 'container_format']
                            if not getattr(self, k)]
                 if len(missing) > 0:
@@ -343,7 +346,7 @@ class ImageMemberFactory(object):
 
 
 class Task(object):
-    _supported_task_type = ('import',)
+    _supported_task_type = ('import', 'api_image_import')
 
     _supported_task_status = ('pending', 'processing', 'success', 'failure')
 
@@ -402,12 +405,12 @@ class Task(object):
 
     def _set_task_status(self, new_status):
         if self._validate_task_status_transition(self.status, new_status):
+            old_status = self.status
             self._status = new_status
             LOG.info(_LI("Task [%(task_id)s] status changing from "
                          "%(cur_status)s to %(new_status)s"),
-                     {'task_id': self.task_id, 'cur_status': self.status,
+                     {'task_id': self.task_id, 'cur_status': old_status,
                       'new_status': new_status})
-            self._status = new_status
         else:
             LOG.error(_LE("Task [%(task_id)s] status failed to change from "
                           "%(cur_status)s to %(new_status)s"),

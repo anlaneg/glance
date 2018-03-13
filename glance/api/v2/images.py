@@ -25,6 +25,7 @@ from six.moves import http_client as http
 import six.moves.urllib.parse as urlparse
 import webob.exc
 
+from glance.api import common
 from glance.api import policy
 from glance.common import exception
 from glance.common import location_strategy
@@ -87,6 +88,49 @@ class ImagesController(object):
 
         return image
 
+    @utils.mutating
+    def import_image(self, req, image_id, body):
+        task_factory = self.gateway.get_task_factory(req.context)
+        executor_factory = self.gateway.get_task_executor_factory(req.context)
+        task_repo = self.gateway.get_task_repo(req.context)
+
+        task_input = {'image_id': image_id,
+                      'import_req': body}
+
+        import_method = body.get('method').get('name')
+        uri = body.get('method').get('uri')
+        if (import_method == 'web-download' and
+           not utils.validate_import_uri(uri)):
+                LOG.debug("URI for web-download does not pass filtering: %s",
+                          uri)
+                msg = (_("URI for web-download does not pass filtering: %s") %
+                       uri)
+                raise webob.exc.HTTPBadRequest(explanation=msg)
+
+        try:
+            import_task = task_factory.new_task(task_type='api_image_import',
+                                                owner=req.context.owner,
+                                                task_input=task_input)
+            task_repo.add(import_task)
+            task_executor = executor_factory.new_task_executor(req.context)
+            pool = common.get_thread_pool("tasks_eventlet_pool")
+            pool.spawn_n(import_task.run, task_executor)
+        except exception.Forbidden as e:
+            LOG.debug("User not permitted to create image import task.")
+            raise webob.exc.HTTPForbidden(explanation=e.msg)
+        except exception.Conflict as e:
+            raise webob.exc.HTTPConflict(explanation=e.msg)
+        except exception.InvalidImageStatusTransition as e:
+            raise webob.exc.HTTPConflict(explanation=e.msg)
+        except ValueError as e:
+            LOG.debug("Cannot import data for image %(id)s: %(e)s",
+                      {'id': image_id,
+                       'e': encodeutils.exception_to_unicode(e)})
+            raise webob.exc.HTTPBadRequest(
+                explanation=encodeutils.exception_to_unicode(e))
+
+        return image_id
+
     #http get方法处理
     def index(self, req, marker=None, limit=None, sort_key=None,
               sort_dir=None, filters=None, member_status='accepted'):
@@ -98,6 +142,15 @@ class ImagesController(object):
         if filters is None:
             filters = {}
         filters['deleted'] = False
+
+        protected = filters.get('protected')
+        if protected is not None:
+            if protected not in ['true', 'false']:
+                message = _("Invalid value '%s' for 'protected' filter."
+                            " Valid values are 'true' or 'false'.") % protected
+                raise webob.exc.HTTPBadRequest(explanation=message)
+            # ensure the type of protected is boolean
+            filters['protected'] = protected == 'true'
 
         if limit is None:
             limit = CONF.limit_param_default
@@ -237,6 +290,13 @@ class ImagesController(object):
         image_repo = self.gateway.get_repo(req.context)
         try:
             image = image_repo.get(image_id)
+
+            # NOTE(abhishekk): If 'image-import' is supported and image status
+            # is uploading then delete image data from the staging area.
+            if CONF.enable_image_import and image.status == 'uploading':
+                file_path = str(CONF.node_staging_uri + '/' + image.image_id)
+                self.store_api.delete_from_backend(file_path)
+
             image.delete() #这个函数调用的是？
             image_repo.remove(image)
         except (glance_store.Forbidden, exception.Forbidden) as e:
@@ -415,6 +475,15 @@ class RequestDeserializer(wsgi.JSONRequestDeserializer):
                     image[key] = properties.pop(key)
             except KeyError:
                 pass
+
+        # NOTE(abhishekk): Check if custom property key name is less than 255
+        # characters. Reference LP #1737952
+        for key in properties:
+            if len(key) > 255:
+                msg = (_("Custom property should not be greater than 255 "
+                         "characters."))
+                raise webob.exc.HTTPBadRequest(explanation=msg)
+
         return dict(image=image, extra_properties=properties, tags=tags)
 
     def _get_change_operation_d10(self, raw_change):
@@ -639,7 +708,7 @@ class RequestDeserializer(wsgi.JSONRequestDeserializer):
             if visibility not in ['community', 'public', 'private', 'shared']:
                 msg = _('Invalid visibility value: %s') % visibility
                 raise webob.exc.HTTPBadRequest(explanation=msg)
-        changes_since = filters.get('changes-since', None)
+        changes_since = filters.get('changes-since')
         if changes_since:
             msg = _('The "changes-since" filter is no longer available on v2.')
             raise webob.exc.HTTPBadRequest(explanation=msg)
@@ -739,6 +808,31 @@ class RequestDeserializer(wsgi.JSONRequestDeserializer):
 
         return query_params
 
+    def _validate_import_body(self, body):
+        # TODO(rosmaita): do schema validation of body instead
+        # of this ad-hoc stuff
+        try:
+            method = body['method']
+        except KeyError:
+            msg = _("Import request requires a 'method' field.")
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+        try:
+            method_name = method['name']
+        except KeyError:
+            msg = _("Import request requires a 'name' field.")
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+        if method_name not in ['glance-direct', 'web-download']:
+            msg = _("Unknown import method name '%s'.") % method_name
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+
+    def import_image(self, request):
+        if not CONF.enable_image_import:
+            msg = _("Image import is not supported at this site.")
+            raise webob.exc.HTTPNotFound(explanation=msg)
+        body = self._get_request_body(request)
+        self._validate_import_body(body)
+        return {'body': body}
+
 
 class ResponseSerializer(wsgi.JSONResponseSerializer):
     def __init__(self, schema=None):
@@ -785,8 +879,8 @@ class ResponseSerializer(wsgi.JSONResponseSerializer):
                     # image.locations is None to indicate it's allowed to show
                     # locations but it's just non-existent.
                     image_view['locations'] = []
-                    LOG.debug("There is not available location "
-                              "for image %s", image.image_id)
+                    LOG.debug("The 'locations' list of image %s is empty",
+                              image.image_id)
 
             if CONF.show_image_direct_url:
                 locations = _get_image_locations(image)
@@ -795,8 +889,9 @@ class ResponseSerializer(wsgi.JSONResponseSerializer):
                     l = location_strategy.choose_best_location(locations)
                     image_view['direct_url'] = l['url']
                 else:
-                    LOG.debug("There is not available location "
-                              "for image %s", image.image_id)
+                    LOG.debug("The 'locations' list of image %s is empty, "
+                              "not including 'direct_url' in response",
+                              image.image_id)
 
             image_view['tags'] = list(image.tags)
             image_view['self'] = self._get_image_href(image)
@@ -811,6 +906,15 @@ class ResponseSerializer(wsgi.JSONResponseSerializer):
         response.status_int = http.CREATED
         self.show(response, image)
         response.location = self._get_image_href(image)
+        # TODO(rosmaita): remove the outer 'if' statement when the
+        # enable_image_import config option is removed
+        if CONF.enable_image_import:
+            # according to RFC7230, headers should not have empty fields
+            # see http://httpwg.org/specs/rfc7230.html#field.components
+            if CONF.enabled_import_methods:
+                import_methods = ("OpenStack-image-import-methods",
+                                  ','.join(CONF.enabled_import_methods))
+                response.headerlist.append(import_methods)
 
     def show(self, response, image):
         image_view = self._format_image(image)
@@ -845,6 +949,9 @@ class ResponseSerializer(wsgi.JSONResponseSerializer):
 
     def delete(self, response, result):
         response.status_int = http.NO_CONTENT
+
+    def import_image(self, response, result):
+        response.status_int = http.ACCEPTED
 
 
 def get_base_properties():

@@ -32,6 +32,9 @@ import subprocess
 import sys
 import warnings
 
+import openstackdocstheme
+
+
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
@@ -44,16 +47,19 @@ sys.path = [
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.coverage',
-              'sphinx.ext.ifconfig',
-              'sphinx.ext.graphviz',
-              'oslosphinx',
-              'stevedore.sphinxext',
-              'oslo_config.sphinxext',
+extensions = ['stevedore.sphinxext',
               'sphinx.ext.autodoc',
               'sphinx.ext.viewcode',
+              'oslo_config.sphinxext',
               'oslo_config.sphinxconfiggen',
+              'openstackdocstheme',
               ]
+
+# openstackdocstheme options
+repository_name = 'openstack/glance'
+bug_project = 'glance'
+bug_tag = ''
+html_last_updated_fmt = '%Y-%m-%d %H:%M'
 
 config_generator_config_file = [
     ('../../etc/oslo-config-generator/glance-api.conf',
@@ -67,6 +73,7 @@ config_generator_config_file = [
     ('../../etc/oslo-config-generator/glance-scrubber.conf',
      '_static/glance-scrubber'),
 ]
+
 
 # Add any paths that contain templates here, relative to this directory.
 # templates_path = []
@@ -116,9 +123,9 @@ exclude_patterns = [
     # in other documents during the build but that should not be
     # included in the toctree themselves, so tell Sphinx to ignore
     # them when scanning for input files.
-    'man/footer.rst',
-    'man/general_options.rst',
-    'man/openstack_options.rst',
+    'cli/footer.txt',
+    'cli/general_options.txt',
+    'cli/openstack_options.txt',
 ]
 
 # The reST default role (for this markup: `text`) to use for all documents.
@@ -147,25 +154,25 @@ modindex_common_prefix = ['glance.']
 # List of tuples 'sourcefile', 'target', u'title', u'Authors name', 'manual'
 
 man_pages = [
-    ('man/glanceapi', 'glance-api', u'Glance API Server',
+    ('cli/glanceapi', 'glance-api', u'Glance API Server',
      [u'OpenStack'], 1),
-    ('man/glancecachecleaner', 'glance-cache-cleaner', u'Glance Cache Cleaner',
+    ('cli/glancecachecleaner', 'glance-cache-cleaner', u'Glance Cache Cleaner',
      [u'OpenStack'], 1),
-    ('man/glancecachemanage', 'glance-cache-manage', u'Glance Cache Manager',
+    ('cli/glancecachemanage', 'glance-cache-manage', u'Glance Cache Manager',
      [u'OpenStack'], 1),
-    ('man/glancecacheprefetcher', 'glance-cache-prefetcher',
+    ('cli/glancecacheprefetcher', 'glance-cache-prefetcher',
      u'Glance Cache Pre-fetcher', [u'OpenStack'], 1),
-    ('man/glancecachepruner', 'glance-cache-pruner', u'Glance Cache Pruner',
+    ('cli/glancecachepruner', 'glance-cache-pruner', u'Glance Cache Pruner',
      [u'OpenStack'], 1),
-    ('man/glancecontrol', 'glance-control', u'Glance Daemon Control Helper ',
+    ('cli/glancecontrol', 'glance-control', u'Glance Daemon Control Helper ',
      [u'OpenStack'], 1),
-    ('man/glancemanage', 'glance-manage', u'Glance Management Utility',
+    ('cli/glancemanage', 'glance-manage', u'Glance Management Utility',
      [u'OpenStack'], 1),
-    ('man/glanceregistry', 'glance-registry', u'Glance Registry Server',
+    ('cli/glanceregistry', 'glance-registry', u'Glance Registry Server',
      [u'OpenStack'], 1),
-    ('man/glancereplicator', 'glance-replicator', u'Glance Replicator',
+    ('cli/glancereplicator', 'glance-replicator', u'Glance Replicator',
      [u'OpenStack'], 1),
-    ('man/glancescrubber', 'glance-scrubber', u'Glance Scrubber Service',
+    ('cli/glancescrubber', 'glance-scrubber', u'Glance Scrubber Service',
      [u'OpenStack'], 1)
 ]
 
@@ -176,6 +183,7 @@ man_pages = [
 # Sphinx are currently 'default' and 'sphinxdoc'.
 # html_theme_path = ["."]
 # html_theme = '_theme'
+html_theme = 'openstackdocs'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
@@ -184,6 +192,7 @@ man_pages = [
 
 # Add any paths that contain custom themes here, relative to this directory.
 #html_theme_path = ['_theme']
+html_theme_path = [openstackdocstheme.get_html_theme_path()]
 
 # The name for this set of Sphinx documents.  If None, it defaults to
 # "<project> v<release> documentation".
@@ -212,8 +221,7 @@ html_static_path = ['_static']
 git_cmd = ["git", "log", "--pretty=format:'%ad, commit %h'", "--date=local",
    "-n1"]
 try:
-    html_last_updated_fmt = subprocess.Popen(
-        git_cmd, stdout=subprocess.PIPE).communicate()[0]
+    html_last_updated_fmt = subprocess.check_output(git_cmd).decode('utf-8')
 except Exception:
     warnings.warn('Cannot get last updated time from git repository. '
                   'Not setting "html_last_updated_fmt".')

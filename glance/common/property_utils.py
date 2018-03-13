@@ -48,7 +48,7 @@ If this configuration option is not set, by default, property
 protections won't be enforced. If a value is specified and the file
 is not found, the glance-api service will fail to start.
 More information on property protections can be found at:
-http://docs.openstack.org/developer/glance/property-protections.html
+https://docs.openstack.org/glance/latest/admin/property-protections.html
 
 Possible values:
     * Empty string
@@ -75,7 +75,7 @@ being protected. If set to ``policies``, a policy defined in
 policy.json is used to express property protections for each
 of the CRUD operations. Examples of how property protections
 are enforced based on ``roles`` or ``policies`` can be found at:
-http://docs.openstack.org/developer/glance/property-protections.html#examples
+https://docs.openstack.org/glance/latest/admin/property-protections.html#examples
 
 Possible values:
     * roles
@@ -216,6 +216,11 @@ class PropertyRules(object):
 
     def check_property_rules(self, property_name, action, context):
         roles = context.roles
+
+        # Include service roles to check if an action can be
+        # performed on the property or not
+        if context.service_roles:
+            roles.extend(context.service_roles)
         if not self.rules:
             return True
 

@@ -13,10 +13,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from __future__ import absolute_import
+
 import fixtures
 import mock
+from six.moves import StringIO
 
 from glance.cmd import manage
+from glance.common import exception
 from glance.db.sqlalchemy import api as db_api
 from glance.db.sqlalchemy import metadata as db_metadata
 from glance.tests import utils as test_utils
@@ -156,10 +160,393 @@ class TestLegacyManage(TestManageBase):
 
 class TestManage(TestManageBase):
 
+    def setUp(self):
+        super(TestManage, self).setUp()
+        self.db = manage.DbCommands()
+        self.output = StringIO()
+        self.useFixture(fixtures.MonkeyPatch('sys.stdout', self.output))
+
+    @mock.patch('glance.db.sqlalchemy.api.get_engine')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.data_migrations.'
+        'has_pending_migrations')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    def test_db_check_result(self, mock_get_alembic_branch_head,
+                             mock_get_current_alembic_heads,
+                             mock_has_pending_migrations,
+                             get_mock_engine):
+
+        get_mock_engine.return_value = mock.Mock()
+        engine = get_mock_engine.return_value
+        engine.engine.name = 'postgresql'
+        exit = self.assertRaises(SystemExit, self.db.check)
+        self.assertIn('Rolling upgrades are currently supported only for '
+                      'MySQL and Sqlite', exit.code)
+
+        engine = get_mock_engine.return_value
+        engine.engine.name = 'mysql'
+
+        mock_get_current_alembic_heads.return_value = ['ocata_contract01']
+        mock_get_alembic_branch_head.return_value = 'pike_expand01'
+        exit = self.assertRaises(SystemExit, self.db.check)
+        self.assertEqual(3, exit.code)
+        self.assertIn('Your database is not up to date. '
+                      'Your first step is to run `glance-manage db expand`.',
+                      self.output.getvalue())
+
+        mock_get_current_alembic_heads.return_value = ['pike_expand01']
+        mock_get_alembic_branch_head.side_effect = ['pike_expand01', None]
+        mock_has_pending_migrations.return_value = [mock.Mock()]
+        exit = self.assertRaises(SystemExit, self.db.check)
+        self.assertEqual(4, exit.code)
+        self.assertIn('Your database is not up to date. '
+                      'Your next step is to run `glance-manage db migrate`.',
+                      self.output.getvalue())
+
+        mock_get_current_alembic_heads.return_value = ['pike_expand01']
+        mock_get_alembic_branch_head.side_effect = ['pike_expand01',
+                                                    'pike_contract01']
+        mock_has_pending_migrations.return_value = None
+        exit = self.assertRaises(SystemExit, self.db.check)
+        self.assertEqual(5, exit.code)
+        self.assertIn('Your database is not up to date. '
+                      'Your next step is to run `glance-manage db contract`.',
+                      self.output.getvalue())
+
+        mock_get_current_alembic_heads.return_value = ['pike_contract01']
+        mock_get_alembic_branch_head.side_effect = ['pike_expand01',
+                                                    'pike_contract01']
+        mock_has_pending_migrations.return_value = None
+        self.assertRaises(SystemExit, self.db.check)
+        self.assertIn('Database is up to date. No upgrades needed.',
+                      self.output.getvalue())
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, 'expand')
+    @mock.patch.object(manage.DbCommands, 'migrate')
+    @mock.patch.object(manage.DbCommands, 'contract')
+    def test_sync(self, mock_contract, mock_migrate, mock_expand,
+                  mock_get_alembic_branch_head,
+                  mock_get_current_alembic_heads):
+        mock_get_current_alembic_heads.return_value = ['ocata_contract01']
+        mock_get_alembic_branch_head.return_value = ['pike_contract01']
+        self.db.sync()
+        mock_expand.assert_called_once_with(online_migration=False)
+        mock_migrate.assert_called_once_with(online_migration=False)
+        mock_contract.assert_called_once_with(online_migration=False)
+        self.assertIn('Database is synced successfully.',
+                      self.output.getvalue())
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch('glance.db.sqlalchemy.alembic_migrations.'
+                'place_database_under_alembic_control')
+    @mock.patch('alembic.command.upgrade')
+    def test_sync_db_is_already_sync(self, mock_upgrade,
+                                     mock_db_under_alembic_control,
+                                     mock_get_alembic_branch_head,
+                                     mock_get_current_alembic_heads):
+        mock_get_current_alembic_heads.return_value = ['pike_contract01']
+        mock_get_alembic_branch_head.return_value = ['pike_contract01']
+        self.assertRaises(SystemExit, self.db.sync)
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    @mock.patch.object(manage.DbCommands, 'expand')
+    def test_sync_failed_to_sync(self, mock_expand, mock_validate_engine,
+                                 mock_get_alembic_branch_head,
+                                 mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['ocata_contract01']
+        mock_get_alembic_branch_head.side_effect = ['pike_contract01', '']
+        mock_expand.side_effect = exception.GlanceException
+        exit = self.assertRaises(SystemExit, self.db.sync)
+        self.assertIn('Failed to sync database: ERROR:', exit.code)
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    @mock.patch.object(manage.DbCommands, '_sync')
+    def test_expand(self, mock_sync, mock_validate_engine,
+                    mock_get_alembic_branch_head,
+                    mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.side_effect = ['ocata_contract01',
+                                                      'pike_expand01']
+        mock_get_alembic_branch_head.side_effect = ['pike_expand01',
+                                                    'pike_contract01']
+        self.db.expand()
+        mock_sync.assert_called_once_with(version='pike_expand01')
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_expand_if_not_expand_head(self, mock_validate_engine,
+                                       mock_get_alembic_branch_head,
+                                       mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['ocata_contract01']
+        mock_get_alembic_branch_head.return_value = []
+        exit = self.assertRaises(SystemExit, self.db.expand)
+        self.assertIn('Database expansion failed. Couldn\'t find head '
+                      'revision of expand branch.', exit.code)
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_expand_db_is_already_sync(self, mock_validate_engine,
+                                       mock_get_alembic_branch_head,
+                                       mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['pike_contract01']
+        mock_get_alembic_branch_head.side_effect = ['pike_expand01',
+                                                    'pike_contract01']
+        self.assertRaises(SystemExit, self.db.expand)
+        self.assertIn('Database is up to date. No migrations needed.',
+                      self.output.getvalue())
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_expand_already_sync(self, mock_validate_engine,
+                                 mock_get_alembic_branch_head,
+                                 mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['pike_expand01']
+        mock_get_alembic_branch_head.side_effect = ['pike_expand01',
+                                                    'pike_contract01']
+        self.db.expand()
+        self.assertIn('Database expansion is up to date. '
+                      'No expansion needed.', self.output.getvalue())
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    @mock.patch.object(manage.DbCommands, '_sync')
+    def test_expand_failed(self, mock_sync, mock_validate_engine,
+                           mock_get_alembic_branch_head,
+                           mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.side_effect = ['ocata_contract01',
+                                                      'test']
+        mock_get_alembic_branch_head.side_effect = ['pike_expand01',
+                                                    'pike_contract01']
+        exit = self.assertRaises(SystemExit, self.db.expand)
+        mock_sync.assert_called_once_with(version='pike_expand01')
+        self.assertIn('Database expansion failed. Database expansion should '
+                      'have brought the database version up to "pike_expand01"'
+                      ' revision. But, current revisions are: test ',
+                      exit.code)
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    @mock.patch.object(manage.DbCommands, '_sync')
+    def test_contract(self, mock_sync, mock_validate_engine,
+                      mock_get_alembic_branch_head,
+                      mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.side_effect = ['pike_expand01',
+                                                      'pike_contract01']
+        mock_get_alembic_branch_head.side_effect = ['pike_contract01',
+                                                    'pike_expand01']
+        self.db.contract()
+        mock_sync.assert_called_once_with(version='pike_contract01')
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_contract_if_not_contract_head(self, mock_validate_engine,
+                                           mock_get_alembic_branch_head,
+                                           mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['ocata_contract01']
+        mock_get_alembic_branch_head.return_value = []
+        exit = self.assertRaises(SystemExit, self.db.contract)
+        self.assertIn('Database contraction failed. Couldn\'t find head '
+                      'revision of contract branch.', exit.code)
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_contract_db_is_already_sync(self, mock_validate_engine,
+                                         mock_get_alembic_branch_head,
+                                         mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['pike_contract01']
+        mock_get_alembic_branch_head.side_effect = ['pike_contract01',
+                                                    'pike_expand01']
+        self.assertRaises(SystemExit, self.db.contract)
+        self.assertIn('Database is up to date. No migrations needed.',
+                      self.output.getvalue())
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_contract_before_expand(self, mock_validate_engine,
+                                    mock_get_alembic_branch_head,
+                                    mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['ocata_contract01']
+        mock_get_alembic_branch_head.side_effect = ['pike_expand01',
+                                                    'pike_contract01']
+        exit = self.assertRaises(SystemExit, self.db.contract)
+        self.assertIn('Database contraction did not run. Database '
+                      'contraction cannot be run before database expansion. '
+                      'Run database expansion first using "glance-manage db '
+                      'expand"', exit.code)
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.data_migrations.'
+        'has_pending_migrations')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_contract_before_migrate(self, mock_validate_engine,
+                                     mock_get_alembic_branch_head,
+                                     mock_get_curr_alembic_heads,
+                                     mock_has_pending_migrations):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_curr_alembic_heads.side_effect = ['pike_expand01']
+        mock_get_alembic_branch_head.side_effect = ['pike_contract01',
+                                                    'pike_expand01']
+        mock_has_pending_migrations.return_value = [mock.Mock()]
+        exit = self.assertRaises(SystemExit, self.db.contract)
+        self.assertIn('Database contraction did not run. Database '
+                      'contraction cannot be run before data migration is '
+                      'complete. Run data migration using "glance-manage db '
+                      'migrate".', exit.code)
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.data_migrations.'
+        'has_pending_migrations')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_migrate(self, mock_validate_engine, mock_get_alembic_branch_head,
+                     mock_get_current_alembic_heads,
+                     mock_has_pending_migrations):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.side_effect = ['pike_expand01',
+                                                      'pike_contract01']
+        mock_get_alembic_branch_head.side_effect = ['pike_contract01',
+                                                    'pike_expand01']
+        mock_has_pending_migrations.return_value = None
+        self.db.migrate()
+        self.assertIn('Database migration is up to date. '
+                      'No migration needed.', self.output.getvalue())
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_migrate_db_is_already_sync(self, mock_validate_engine,
+                                        mock_get_alembic_branch_head,
+                                        mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['pike_contract01']
+        mock_get_alembic_branch_head.side_effect = ['pike_contract01',
+                                                    'pike_expand01']
+        self.assertRaises(SystemExit, self.db.migrate)
+        self.assertIn('Database is up to date. No migrations needed.',
+                      self.output.getvalue())
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_migrate_already_sync(self, mock_validate_engine,
+                                  mock_get_alembic_branch_head,
+                                  mock_get_current_alembic_heads):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['ocata_contract01']
+        mock_get_alembic_branch_head.side_effect = ['pike_contract01',
+                                                    'pike_expand01']
+        exit = self.assertRaises(SystemExit, self.db.migrate)
+        self.assertIn('Data migration did not run. Data migration cannot be '
+                      'run before database expansion. Run database expansion '
+                      'first using "glance-manage db expand"', exit.code)
+
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.data_migrations.'
+        'has_pending_migrations')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_current_alembic_heads')
+    @mock.patch(
+        'glance.db.sqlalchemy.alembic_migrations.get_alembic_branch_head')
+    @mock.patch.object(manage.DbCommands, '_validate_engine')
+    def test_migrate_before_expand(self, mock_validate_engine,
+                                   mock_get_alembic_branch_head,
+                                   mock_get_current_alembic_heads,
+                                   mock_has_pending_migrations):
+        engine = mock_validate_engine.return_value
+        engine.engine.name = 'mysql'
+        mock_get_current_alembic_heads.return_value = ['pike_expand01']
+        mock_get_alembic_branch_head.side_effect = ['pike_contract01',
+                                                    'pike_expand01']
+        mock_has_pending_migrations.return_value = None
+        self.db.migrate()
+        self.assertIn('Database migration is up to date. '
+                      'No migration needed.', self.output.getvalue())
+
     @mock.patch.object(manage.DbCommands, 'version')
     def test_db_version(self, version):
         self._main_test_helper(['glance.cmd.manage', 'db', 'version'],
                                manage.DbCommands.version)
+
+    @mock.patch.object(manage.DbCommands, 'check')
+    def test_db_check(self, check):
+        self._main_test_helper(['glance.cmd.manage', 'db', 'check'],
+                               manage.DbCommands.check)
 
     @mock.patch.object(manage.DbCommands, 'sync')
     def test_db_sync(self, sync):

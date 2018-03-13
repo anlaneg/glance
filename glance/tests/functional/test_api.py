@@ -22,6 +22,75 @@ from six.moves import http_client
 
 from glance.tests import functional
 
+# TODO(rosmaita): all the EXPERIMENTAL stuff in this file can be ripped out
+# when v2.6 becomes CURRENT in Queens
+
+
+def _generate_v1_versions(url):
+    v1_versions = {'versions': [
+        {
+            'id': 'v1.1',
+            'status': 'DEPRECATED',
+            'links': [{'rel': 'self', 'href': url % '1'}],
+        },
+        {
+            'id': 'v1.0',
+            'status': 'DEPRECATED',
+            'links': [{'rel': 'self', 'href': url % '1'}],
+        },
+    ]}
+    return v1_versions
+
+
+def _generate_v2_versions(url):
+    version_list = []
+    version_list.extend([
+        {
+            'id': 'v2.6',
+            'status': 'CURRENT',
+            'links': [{'rel': 'self', 'href': url % '2'}],
+        },
+        {
+            'id': 'v2.5',
+            'status': 'SUPPORTED',
+            'links': [{'rel': 'self', 'href': url % '2'}],
+        },
+        {
+            'id': 'v2.4',
+            'status': 'SUPPORTED',
+            'links': [{'rel': 'self', 'href': url % '2'}],
+        },
+        {
+            'id': 'v2.3',
+            'status': 'SUPPORTED',
+            'links': [{'rel': 'self', 'href': url % '2'}],
+        },
+        {
+            'id': 'v2.2',
+            'status': 'SUPPORTED',
+            'links': [{'rel': 'self', 'href': url % '2'}],
+        },
+        {
+            'id': 'v2.1',
+            'status': 'SUPPORTED',
+            'links': [{'rel': 'self', 'href': url % '2'}],
+        },
+        {
+            'id': 'v2.0',
+            'status': 'SUPPORTED',
+            'links': [{'rel': 'self', 'href': url % '2'}],
+        }
+    ])
+    v2_versions = {'versions': version_list}
+    return v2_versions
+
+
+def _generate_all_versions(url):
+    v1 = _generate_v1_versions(url)
+    v2 = _generate_v2_versions(url)
+    all_versions = {'versions': v2['versions'] + v1['versions']}
+    return all_versions
+
 
 class TestApiVersions(functional.FunctionalTest):
 
@@ -31,48 +100,7 @@ class TestApiVersions(functional.FunctionalTest):
         self.start_servers(**self.__dict__.copy())
 
         url = 'http://127.0.0.1:%d/v%%s/' % self.api_port
-        versions = {'versions': [
-            {
-                'id': 'v2.5',
-                'status': 'CURRENT',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.4',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.3',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.2',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.1',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.0',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v1.1',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self', 'href': url % '1'}],
-            },
-            {
-                'id': 'v1.0',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self', 'href': url % '1'}],
-            },
-        ]}
+        versions = _generate_all_versions(url)
 
         # Verify version choices returned.
         path = 'http://%s:%d' % ('127.0.0.1', self.api_port)
@@ -88,38 +116,7 @@ class TestApiVersions(functional.FunctionalTest):
         self.start_servers(**self.__dict__.copy())
 
         url = 'http://127.0.0.1:%d/v%%s/' % self.api_port
-        versions = {'versions': [
-            {
-                'id': 'v2.5',
-                'status': 'CURRENT',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.4',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.3',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.2',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.1',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.0',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-        ]}
+        versions = _generate_v2_versions(url)
 
         # Verify version choices returned.
         path = 'http://%s:%d' % ('127.0.0.1', self.api_port)
@@ -135,18 +132,7 @@ class TestApiVersions(functional.FunctionalTest):
         self.start_servers(**self.__dict__.copy())
 
         url = 'http://127.0.0.1:%d/v%%s/' % self.api_port
-        versions = {'versions': [
-            {
-                'id': 'v1.1',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self', 'href': url % '1'}],
-            },
-            {
-                'id': 'v1.0',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self', 'href': url % '1'}],
-            },
-        ]}
+        versions = _generate_v1_versions(url)
 
         # Verify version choices returned.
         path = 'http://%s:%d' % ('127.0.0.1', self.api_port)
@@ -163,48 +149,7 @@ class TestApiPaths(functional.FunctionalTest):
         self.start_servers(**self.__dict__.copy())
 
         url = 'http://127.0.0.1:%d/v%%s/' % self.api_port
-        self.versions = {'versions': [
-            {
-                'id': 'v2.5',
-                'status': 'CURRENT',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.4',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.3',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.2',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.1',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v2.0',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self', 'href': url % '2'}],
-            },
-            {
-                'id': 'v1.1',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self', 'href': url % '1'}],
-            },
-            {
-                'id': 'v1.0',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self', 'href': url % '1'}],
-            },
-        ]}
+        self.versions = _generate_all_versions(url)
         images = {'images': []}
         self.images_json = jsonutils.dumps(images)
 

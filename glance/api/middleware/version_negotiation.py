@@ -84,6 +84,7 @@ class VersionNegotiationFilter(wsgi.Middleware):
             allowed_versions['v2.3'] = 2
             allowed_versions['v2.4'] = 2
             allowed_versions['v2.5'] = 2
+            allowed_versions['v2.6'] = 2
         return allowed_versions
 
     def _match_version_string(self, subject):
@@ -93,7 +94,7 @@ class VersionNegotiationFilter(wsgi.Middleware):
 
         :param subject: The string to check
         :returns: version found in the subject
-        :raises: ValueError if no acceptable version could be found
+        :raises ValueError: if no acceptable version could be found
         """
         if self.allowed_versions is None:
             self.allowed_versions = self._get_allowed_versions()

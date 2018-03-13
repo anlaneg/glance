@@ -97,6 +97,21 @@ def fake_get_verifier(context, img_signature_certificate_uuid,
     return verifier
 
 
+def get_fake_context(user=USER1, tenant=TENANT1, roles=None, is_admin=False):
+    if roles is None:
+        roles = ['member']
+
+    kwargs = {
+        'user': user,
+        'tenant': tenant,
+        'roles': roles,
+        'is_admin': is_admin,
+    }
+
+    context = glance.context.RequestContext(**kwargs)
+    return context
+
+
 class FakeDB(object):
 
     def __init__(self, initialize=True):
@@ -109,8 +124,10 @@ class FakeDB(object):
         images = [
             {'id': UUID1, 'owner': TENANT1, 'status': 'queued',
              'locations': [{'url': '%s/%s' % (BASE_URI, UUID1),
-                            'metadata': {}, 'status': 'queued'}]},
-            {'id': UUID2, 'owner': TENANT1, 'status': 'queued'},
+                            'metadata': {}, 'status': 'queued'}],
+             'disk_format': 'raw', 'container_format': 'bare'},
+            {'id': UUID2, 'owner': TENANT1, 'status': 'queued',
+             'disk_format': 'raw', 'container_format': 'bare'},
         ]
         [simple_db.image_create(None, image) for image in images]
 
@@ -223,6 +240,9 @@ class FakeStoreAPI(object):
 
     def check_location_metadata(self, val, key=''):
         store.check_location_metadata(val)
+
+    def delete_from_backend(self, uri, context=None):
+        pass
 
 
 class FakePolicyEnforcer(object):

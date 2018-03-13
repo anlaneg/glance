@@ -14,6 +14,7 @@
 #    under the License.
 
 import datetime
+import eventlet
 import uuid
 
 import glance_store as store
@@ -598,6 +599,50 @@ class TestImagesController(base.IsolatedUnitTest):
         self.assertEqual(TENANT1, request.context.tenant)
         self.assertRaises(webob.exc.HTTPNotFound,
                           self.controller.show, request, UUID4)
+
+    def test_image_import_raises_conflict(self):
+        request = unit_test_utils.get_fake_request()
+        # NOTE(abhishekk): Due to
+        # https://bugs.launchpad.net/glance/+bug/1712463 taskflow is not
+        # executing. Once it is fixed instead of mocking spawn_n method
+        # we should mock execute method of _ImportToStore task.
+        with mock.patch.object(eventlet.GreenPool, 'spawn_n',
+                               side_effect=exception.Conflict):
+            self.assertRaises(webob.exc.HTTPConflict,
+                              self.controller.import_image, request, UUID4,
+                              {'method': {'name': 'glance-direct'}})
+
+    def test_image_import_raises_conflict_for_invalid_status_change(self):
+        request = unit_test_utils.get_fake_request()
+        # NOTE(abhishekk): Due to
+        # https://bugs.launchpad.net/glance/+bug/1712463 taskflow is not
+        # executing. Once it is fixed instead of mocking spawn_n method
+        # we should mock execute method of _ImportToStore task.
+        with mock.patch.object(
+                eventlet.GreenPool, 'spawn_n',
+                side_effect=exception.InvalidImageStatusTransition):
+            self.assertRaises(webob.exc.HTTPConflict,
+                              self.controller.import_image, request, UUID4,
+                              {'method': {'name': 'glance-direct'}})
+
+    def test_image_import_raises_bad_request(self):
+        request = unit_test_utils.get_fake_request()
+        # NOTE(abhishekk): Due to
+        # https://bugs.launchpad.net/glance/+bug/1712463 taskflow is not
+        # executing. Once it is fixed instead of mocking spawn_n method
+        # we should mock execute method of _ImportToStore task.
+        with mock.patch.object(eventlet.GreenPool, 'spawn_n',
+                               side_effect=ValueError):
+            self.assertRaises(webob.exc.HTTPBadRequest,
+                              self.controller.import_image, request, UUID4,
+                              {'method': {'name': 'glance-direct'}})
+
+    def test_image_import_invalid_uri_filtering(self):
+        request = unit_test_utils.get_fake_request()
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller.import_image, request, UUID4,
+                          {'method': {'name': 'web-download',
+                                      'uri': 'fake_uri'}})
 
     def test_create(self):
         request = unit_test_utils.get_fake_request()
@@ -2175,6 +2220,24 @@ class TestImagesController(base.IsolatedUnitTest):
         self.assertRaises(webob.exc.HTTPBadRequest, self.controller.delete,
                           request, UUID1)
 
+    def test_delete_uploading_status_image(self):
+        """Ensure status of uploading image is updated (LP bug #1733289)"""
+        self.config(enable_image_import=True)
+        request = unit_test_utils.get_fake_request(is_admin=True)
+        image = self.db.image_create(request.context, {'status': 'uploading'})
+        image_id = image['id']
+        with mock.patch.object(self.store,
+                               'delete_from_backend') as mock_store:
+            self.controller.delete(request, image_id)
+
+        # Ensure delete_from_backend is called
+        self.assertEqual(1, mock_store.call_count)
+
+        image = self.db.image_get(request.context, image_id,
+                                  force_show_deleted=True)
+        self.assertTrue(image['deleted'])
+        self.assertEqual('deleted', image['status'])
+
     def test_index_with_invalid_marker(self):
         fake_uuid = str(uuid.uuid4())
         request = unit_test_utils.get_fake_request()
@@ -2186,6 +2249,23 @@ class TestImagesController(base.IsolatedUnitTest):
         self.assertIsNone(pos)
         pos = self.controller._get_locations_op_pos('1', None, True)
         self.assertIsNone(pos)
+
+    def test_image_import(self):
+        request = unit_test_utils.get_fake_request()
+        output = self.controller.import_image(request, UUID4,
+                                              {'method': {'name':
+                                                          'glance-direct'}})
+        self.assertEqual(UUID4, output)
+
+    def test_image_import_not_allowed(self):
+        request = unit_test_utils.get_fake_request()
+        # NOTE(abhishekk): For coverage purpose setting tenant to
+        # None. It is not expected to do in normal scenarios.
+        request.context.tenant = None
+        self.assertRaises(webob.exc.HTTPForbidden,
+                          self.controller.import_image,
+                          request, UUID4, {'method': {'name':
+                                                      'glance-direct'}})
 
 
 class TestImagesControllerPolicies(base.IsolatedUnitTest):
@@ -2387,6 +2467,23 @@ class TestImagesDeserializer(test_utils.BaseTestCase):
                     'extra_properties': {'foo': 'bar'},
                     'tags': ['one', 'two']}
         self.assertEqual(expected, output)
+
+    def test_create_invalid_property_key(self):
+        request = unit_test_utils.get_fake_request()
+        request.body = jsonutils.dump_as_bytes({
+            'id': UUID3,
+            'name': 'image-1',
+            'visibility': 'public',
+            'tags': ['one', 'two'],
+            'container_format': 'ami',
+            'disk_format': 'ami',
+            'min_ram': 128,
+            'min_disk': 10,
+            'f' * 256: 'bar',
+            'protected': True,
+        })
+        self.assertRaises(webob.exc.HTTPBadRequest, self.deserializer.create,
+                          request)
 
     def test_create_readonly_attributes_forbidden(self):
         bodies = [
@@ -3066,6 +3163,65 @@ class TestImagesDeserializer(test_utils.BaseTestCase):
         self.assertEqual(sorted(['x86', '64bit']),
                          sorted(output['filters']['tags']))
 
+    def test_image_import(self):
+        self.config(enable_image_import=True)
+        request = unit_test_utils.get_fake_request()
+        import_body = {
+            "method": {
+                "name": "glance-direct"
+            }
+        }
+        request.body = jsonutils.dump_as_bytes(import_body)
+        output = self.deserializer.import_image(request)
+        expected = {"body": import_body}
+        self.assertEqual(expected, output)
+
+    def test_import_image_disabled(self):
+        self.config(enable_image_import=False)
+        request = unit_test_utils.get_fake_request()
+        self.assertRaises(webob.exc.HTTPNotFound,
+                          self.deserializer.import_image,
+                          request)
+
+    def test_import_image_invalid_body(self):
+        self.config(enable_image_import=True)
+        request = unit_test_utils.get_fake_request()
+        import_body = {
+            "method1": {
+                "name": "glance-direct"
+            }
+        }
+        request.body = jsonutils.dump_as_bytes(import_body)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.deserializer.import_image,
+                          request)
+
+    def test_import_image_invalid_input(self):
+        self.config(enable_image_import=True)
+        request = unit_test_utils.get_fake_request()
+        import_body = {
+            "method": {
+                "abcd": "glance-direct"
+            }
+        }
+        request.body = jsonutils.dump_as_bytes(import_body)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.deserializer.import_image,
+                          request)
+
+    def test_import_image_invalid_import_method(self):
+        self.config(enable_image_import=True)
+        request = unit_test_utils.get_fake_request()
+        import_body = {
+            "method": {
+                "name": "abcd"
+            }
+        }
+        request.body = jsonutils.dump_as_bytes(import_body)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.deserializer.import_image,
+                          request)
+
 
 class TestImagesDeserializerWithExtendedSchema(test_utils.BaseTestCase):
 
@@ -3420,6 +3576,51 @@ class TestImagesSerializer(test_utils.BaseTestCase):
         self.assertEqual('application/json', response.content_type)
         self.assertEqual('/v2/images/%s' % UUID1, response.location)
 
+    def test_create_has_import_methods_header(self):
+        # NOTE(rosmaita): enabled_import_methods is defined as type
+        # oslo.config.cfg.ListOpt, so it is stored internally as a list
+        # but is converted to a string for output in the HTTP header
+
+        header_name = 'OpenStack-image-import-methods'
+
+        # check multiple methods
+        enabled_methods = ['one', 'two', 'three']
+        self.config(enabled_import_methods=enabled_methods)
+        response = webob.Response()
+        self.serializer.create(response, self.fixtures[0])
+        self.assertEqual(http.CREATED, response.status_int)
+        header_value = response.headers.get(header_name)
+        self.assertIsNotNone(header_value)
+        self.assertItemsEqual(enabled_methods, header_value.split(','))
+
+        # check single method
+        self.config(enabled_import_methods=['swift-party-time'])
+        response = webob.Response()
+        self.serializer.create(response, self.fixtures[0])
+        self.assertEqual(http.CREATED, response.status_int)
+        header_value = response.headers.get(header_name)
+        self.assertIsNotNone(header_value)
+        self.assertEqual('swift-party-time', header_value)
+
+        # no header for empty config value
+        self.config(enabled_import_methods=[])
+        response = webob.Response()
+        self.serializer.create(response, self.fixtures[0])
+        self.assertEqual(http.CREATED, response.status_int)
+        headers = response.headers.keys()
+        self.assertNotIn(header_name, headers)
+
+    # TODO(rosmaita): remove this test when the enable_image_import
+    # option is removed
+    def test_create_has_no_import_methods_header(self):
+        header_name = 'OpenStack-image-import-methods'
+        self.config(enable_image_import=False)
+        response = webob.Response()
+        self.serializer.create(response, self.fixtures[0])
+        self.assertEqual(http.CREATED, response.status_int)
+        headers = response.headers.keys()
+        self.assertNotIn(header_name, headers)
+
     def test_update(self):
         expected = {
             'id': UUID1,
@@ -3448,6 +3649,12 @@ class TestImagesSerializer(test_utils.BaseTestCase):
         actual['tags'] = set(actual['tags'])
         self.assertEqual(expected, actual)
         self.assertEqual('application/json', response.content_type)
+
+    def test_import_image(self):
+        response = webob.Response()
+        self.serializer.import_image(response, {})
+        self.assertEqual(http.ACCEPTED, response.status_int)
+        self.assertEqual('0', response.headers['Content-Length'])
 
 
 class TestImagesSerializerWithUnicode(test_utils.BaseTestCase):

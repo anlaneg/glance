@@ -19,9 +19,9 @@ import shutil
 import tarfile
 
 try:
-    import xml.etree.cElementTree as ET
+    from defusedxml import cElementTree as ET
 except ImportError:
-    import xml.etree.ElementTree as ET
+    from defusedxml import ElementTree as ET
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -135,7 +135,7 @@ class OVAImageExtractor(object):
         :param ova: a file object containing the OVA file
         :returns: a tuple of extracted disk file object and dictionary of
             properties parsed from the OVF file
-        :raises: RuntimeError for malformed OVA and OVF files
+        :raises RuntimeError: an error for malformed OVA and OVF files
         """
         with tarfile.open(fileobj=ova) as tar_file:
             filenames = tar_file.getnames()
@@ -164,7 +164,7 @@ class OVAImageExtractor(object):
 
         :param ovf: a file object containing the OVF file
         :returns: a tuple of disk filename and a properties dictionary
-        :raises: RuntimeError for malformed OVF file
+        :raises RuntimeError: an error for malformed OVF file
         """
 
         def _get_namespace_and_tag(tag):

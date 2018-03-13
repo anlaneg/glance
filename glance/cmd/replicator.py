@@ -100,7 +100,7 @@ CONF.register_opt(
                      "one. This is the token used for the target.")))
 
 logging.register_options(CONF)
-CONF.set_default(name='use_stderr', default=True, enforce_type=True)
+CONF.set_default(name='use_stderr', default=True)
 
 # If ../glance/__init__.py exists, add ../ to Python search path, so that
 # it will override what happens to be installed in /usr/(local/)lib/python...
@@ -652,7 +652,7 @@ def replication_compare(options, args):
                     del headers[key]
 
             for key in image:
-                if image[key] != headers.get(key, None):
+                if image[key] != headers.get(key):
                     LOG.warn(_LW('%(image_id)s: field %(key)s differs '
                                  '(source is %(source_value)s, destination '
                                  'is %(target_value)s)')

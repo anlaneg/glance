@@ -129,6 +129,7 @@ image data payload.  Further, in order to promise image immutability, the Image
 service will allow even the owner (or an administrator) only write-once
 permissions to specific image properties and the image data payload.
 
+.. _image-create:
 
 Create an image
 ~~~~~~~~~~~~~~~
@@ -167,7 +168,7 @@ Request
    - visibility: visibility-in-request
 
 Additionally, you may include additional properties specified as key:value
-pairs, where the value must be a string data type.  Keys and values are limited
+pairs, where the value must be a string data type.  Keys are limited
 to 255 chars in length.  Available key names may be limited by the cloud's
 property protection configuration.
 
@@ -183,6 +184,7 @@ Response Parameters
 .. rest_parameters:: images-parameters.yaml
 
    - Location: Location
+   - OpenStack-image-import-methods: import-header
    - checksum: checksum
    - container_format: container_format
    - created_at: created_at
@@ -450,6 +452,7 @@ Request
    - marker: marker
    - name: name-in-query
    - owner: owner-in-query
+   - protected: protected-in-query
    - status: status-in-query
    - tag: tag-in-query
    - visibility: visibility-in-query
@@ -527,6 +530,9 @@ fail with a 403 (Forbidden) response code:
   permission to do so *(since Image API v2.2)*.  This depends upon how property
   protections are configured in the OpenStack cloud in which you are making the
   call.  Consult your cloud's documentation for details.
+
+- An attempt to delete the only image location, or to replace the image
+  locations with an empty list *(since Image API v2.4)*.
 
 Attempting to add a location path to an image that is not in ``queued`` or
 ``active`` state will result in a 409 (Conflict) response code

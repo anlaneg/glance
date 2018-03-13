@@ -98,7 +98,7 @@ class ImageMembersController(object):
         :param member_id: the member identifier
         :returns: The response body is a mapping of the following form
 
-        .. code-block:: json
+        ::
 
             {'member_id': <MEMBER>,
              'image_id': <IMAGE>,
@@ -116,6 +116,8 @@ class ImageMembersController(object):
                                                                member_id)
             member_repo.add(new_member)
             return new_member
+        except exception.Invalid as e:
+            raise webob.exc.HTTPBadRequest(explanation=e.msg)
         except exception.Forbidden:
             msg = _("Not allowed to create members for image %s.") % image_id
             LOG.warning(msg)
@@ -136,13 +138,14 @@ class ImageMembersController(object):
     @utils.mutating
     def update(self, req, image_id, member_id, status):
         """
-        Adds a membership to the image.
+        Update the status of a member for a given image.
         :param req: the Request object coming from the wsgi layer
         :param image_id: the image identifier
         :param member_id: the member identifier
+        :param status: the status of a member
         :returns: The response body is a mapping of the following form
 
-        .. code-block:: json
+        ::
 
             {'member_id': <MEMBER>,
              'image_id': <IMAGE>,
@@ -177,7 +180,7 @@ class ImageMembersController(object):
         :param image_id: The image identifier
         :returns: The response body is a mapping of the following form
 
-        .. code-block:: json
+        ::
 
             {'members': [
                 {'member_id': <MEMBER>,
@@ -208,7 +211,7 @@ class ImageMembersController(object):
         :param image_id: The image identifier
         :returns: The response body is a mapping of the following form
 
-        .. code-block:: json
+        ::
 
             {'member_id': <MEMBER>,
              'image_id': <IMAGE>,

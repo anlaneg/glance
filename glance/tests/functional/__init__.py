@@ -24,7 +24,6 @@ and spinning down the servers.
 import atexit
 import datetime
 import errno
-import logging
 import os
 import platform
 import shutil
@@ -77,6 +76,9 @@ class Server(object):
         self.property_protection_file = ''
         self.enable_v1_api = True
         self.enable_v2_api = True
+        # TODO(rosmaita): remove in Queens when the option is removed
+        # also, don't forget to remove it from ApiServer.conf_base
+        self.enable_image_import = False
         self.enable_v1_registry = True
         self.enable_v2_registry = True
         self.needs_database = False
@@ -260,13 +262,14 @@ class Server(object):
         rc = test_utils.wait_for_fork(self.process_pid, raise_error=False)
         return (rc, '', '')
 
-    def dump_log(self, name):
-        log = logging.getLogger(name)
-        if not self.log_file or not os.path.exists(self.log_file):
-            return
+    def dump_log(self):
+        if not self.log_file:
+            return "log_file not set for {name}".format(name=self.server_name)
+        elif not os.path.exists(self.log_file):
+            return "{log_file} for {name} did not exist".format(
+                log_file=self.log_file, name=self.server_name)
         with open(self.log_file, 'r') as fptr:
-            for line in fptr:
-                log.info(line.strip())
+            return fptr.read().strip()
 
 
 class ApiServer(Server):
@@ -348,6 +351,7 @@ show_multiple_locations = %(show_multiple_locations)s
 user_storage_quota = %(user_storage_quota)s
 enable_v1_api = %(enable_v1_api)s
 enable_v2_api = %(enable_v2_api)s
+enable_image_import = %(enable_image_import)s
 lock_path = %(lock_path)s
 property_protection_file = %(property_protection_file)s
 property_protection_rule_format = %(property_protection_rule_format)s
@@ -640,20 +644,21 @@ class FunctionalTest(test_utils.BaseTestCase):
                           self.scrubber_daemon.pid_file]
         self.files_to_destroy = []
         self.launched_servers = []
+        # Keep track of servers we've logged so we don't double-log them.
+        self._attached_server_logs = []
+        self.addOnException(self.add_log_details_on_exception)
 
-    def tearDown(self):
         if not self.disabled:
-            self.cleanup()
             # We destroy the test data store between each test case,
             # and recreate it, which ensures that we have no side-effects
             # from the tests
+            self.addCleanup(
+                self._reset_database, self.registry_server.sql_connection)
+            self.addCleanup(
+                self._reset_database, self.api_server.sql_connection)
+            self.addCleanup(self.cleanup)
             self._reset_database(self.registry_server.sql_connection)
             self._reset_database(self.api_server.sql_connection)
-        super(FunctionalTest, self).tearDown()
-
-        self.api_server.dump_log('api_server')
-        self.registry_server.dump_log('registry_server')
-        self.scrubber_daemon.dump_log('scrubber_daemon')
 
     def set_policy_rules(self, rules):
         fap = open(self.policy_file, 'w')
@@ -900,7 +905,7 @@ class FunctionalTest(test_utils.BaseTestCase):
 
         return msg if expect_launch else None
 
-    def stop_server(self, server, name):
+    def stop_server(self, server):
         """
         Called to stop a single server in a normal fashion using the
         glance-control stop method to gracefully shut the server down.
@@ -921,10 +926,10 @@ class FunctionalTest(test_utils.BaseTestCase):
         """
 
         # Spin down the API and default registry server
-        self.stop_server(self.api_server, 'API server')
-        self.stop_server(self.registry_server, 'Registry server')
+        self.stop_server(self.api_server)
+        self.stop_server(self.registry_server)
         if self.include_scrubber:
-            self.stop_server(self.scrubber_daemon, 'Scrubber daemon')
+            self.stop_server(self.scrubber_daemon)
 
         self._reset_database(self.registry_server.sql_connection)
 
@@ -943,8 +948,12 @@ class FunctionalTest(test_utils.BaseTestCase):
         dst_file_name = os.path.join(dst_dir, file_name)
         return dst_file_name
 
+    def add_log_details_on_exception(self, *args, **kwargs):
+        self.add_log_details()
+
     def add_log_details(self, servers=None):
-        logs = [s.log_file for s in (servers or self.launched_servers)]
-        for log in logs:
-            if os.path.exists(log):
-                testtools.content.attach_file(self, log)
+        for s in servers or self.launched_servers:
+            if s.log_file not in self._attached_server_logs:
+                self._attached_server_logs.append(s.log_file)
+            self.addDetail(
+                s.server_name, testtools.content.text_content(s.dump_log()))

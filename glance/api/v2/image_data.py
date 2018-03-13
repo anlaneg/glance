@@ -14,6 +14,7 @@
 #    under the License.
 from cursive import exception as cursive_exception
 import glance_store
+from glance_store import backend
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import encodeutils
@@ -39,16 +40,13 @@ CONF = cfg.CONF
 
 class ImageDataController(object):
     def __init__(self, db_api=None, store_api=None,
-                 policy_enforcer=None, notifier=None,
-                 gateway=None):
-        if gateway is None:
-            db_api = db_api or glance.db.get_api()
-            store_api = store_api or glance_store
-            policy = policy_enforcer or glance.api.policy.Enforcer()
-            notifier = notifier or glance.notifier.Notifier()
-            gateway = glance.gateway.Gateway(db_api, store_api,
-                                             notifier, policy)
-        self.gateway = gateway
+                 policy_enforcer=None, notifier=None):
+        db_api = db_api or glance.db.get_api()
+        store_api = store_api or glance_store
+        notifier = notifier or glance.notifier.Notifier()
+        self.policy = policy_enforcer or glance.api.policy.Enforcer()
+        self.gateway = glance.gateway.Gateway(db_api, store_api,
+                                              notifier, self.policy)
 
     def _restore(self, image_repo, image):
         """
@@ -66,6 +64,23 @@ class ImageDataController(object):
                    {'image_id': image.image_id,
                     'e': encodeutils.exception_to_unicode(e)})
             LOG.exception(msg)
+
+    def _unstage(self, image_repo, image, staging_store):
+        """
+        Restore the image to queued status and remove data from staging.
+
+        :param image_repo: The instance of ImageRepo
+        :param image: The image will be restored
+        :param staging_store: The store used for staging
+        """
+        loc = glance_store.location.get_location_from_uri(str(
+            CONF.node_staging_uri + '/' + image.image_id))
+        try:
+            staging_store.delete(loc)
+        except glance_store.exceptions.NotFound:
+            pass
+        finally:
+            self._restore(image_repo, image)
 
     def _delete(self, image_repo, image):
         """Delete the image.
@@ -90,6 +105,7 @@ class ImageDataController(object):
         refresher = None
         cxt = req.context
         try:
+            self.policy.enforce(cxt, 'upload_image', {})
             #通过image_id获得image
             image = image_repo.get(image_id)
             image.status = 'saving'
@@ -248,7 +264,91 @@ class ImageDataController(object):
 
         except Exception as e:
             with excutils.save_and_reraise_exception():
-                LOG.exception(_LE("Failed to upload image data due to "
+                LOG.error(_LE("Failed to upload image data due to "
+                              "internal error"))
+                self._restore(image_repo, image)
+
+    @utils.mutating
+    def stage(self, req, image_id, data, size):
+        image_repo = self.gateway.get_repo(req.context)
+        image = None
+
+        # NOTE(jokke): this is horrible way to do it but as long as
+        # glance_store is in a shape it is, the only way. Don't hold me
+        # accountable for it.
+        def _build_staging_store():
+            conf = cfg.ConfigOpts()
+            backend.register_opts(conf)
+            conf.set_override('filesystem_store_datadir',
+                              CONF.node_staging_uri[7:],
+                              group='glance_store')
+            staging_store = backend._load_store(conf, 'file')
+
+            try:
+                staging_store.configure()
+            except AttributeError:
+                msg = _("'node_staging_uri' is not set correctly. Could not "
+                        "load staging store.")
+                raise exception.BadStoreUri(message=msg)
+            return staging_store
+
+        staging_store = _build_staging_store()
+
+        try:
+            image = image_repo.get(image_id)
+            image.status = 'uploading'
+            image_repo.save(image, from_state='queued')
+            try:
+                staging_store.add(
+                    image_id, utils.LimitingReader(
+                        utils.CooperativeReader(data), CONF.image_size_cap), 0)
+            except glance_store.Duplicate as e:
+                msg = _("The image %s has data on staging") % image_id
+                raise webob.exc.HTTPConflict(explanation=msg)
+
+        except exception.NotFound as e:
+            raise webob.exc.HTTPNotFound(explanation=e.msg)
+
+        except glance_store.StorageFull as e:
+            msg = _("Image storage media "
+                    "is full: %s") % encodeutils.exception_to_unicode(e)
+            LOG.error(msg)
+            self._unstage(image_repo, image, staging_store)
+            raise webob.exc.HTTPRequestEntityTooLarge(explanation=msg,
+                                                      request=req)
+
+        except exception.StorageQuotaFull as e:
+            msg = _("Image exceeds the storage "
+                    "quota: %s") % encodeutils.exception_to_unicode(e)
+            LOG.debug(msg)
+            self._unstage(image_repo, image, staging_store)
+            raise webob.exc.HTTPRequestEntityTooLarge(explanation=msg,
+                                                      request=req)
+
+        except exception.ImageSizeLimitExceeded as e:
+            msg = _("The incoming image is "
+                    "too large: %s") % encodeutils.exception_to_unicode(e)
+            LOG.debug(msg)
+            self._unstage(image_repo, image, staging_store)
+            raise webob.exc.HTTPRequestEntityTooLarge(explanation=msg,
+                                                      request=req)
+
+        except glance_store.StorageWriteDenied as e:
+            msg = _("Insufficient permissions on image "
+                    "storage media: %s") % encodeutils.exception_to_unicode(e)
+            LOG.error(msg)
+            self._unstage(image_repo, image, staging_store)
+            raise webob.exc.HTTPServiceUnavailable(explanation=msg,
+                                                   request=req)
+
+        except exception.InvalidImageStatusTransition as e:
+            msg = encodeutils.exception_to_unicode(e)
+            LOG.debug(msg)
+            raise webob.exc.HTTPConflict(explanation=e.msg, request=req)
+
+        except Exception as e:
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_LE("Failed to stage image data due to "
                                   "internal error"))
                 self._restore(image_repo, image)
 
@@ -272,6 +372,21 @@ class ImageDataController(object):
 class RequestDeserializer(wsgi.JSONRequestDeserializer):
 
     def upload(self, request):
+        try:
+            request.get_content_type(('application/octet-stream',))
+        except exception.InvalidContentType as e:
+            raise webob.exc.HTTPUnsupportedMediaType(explanation=e.msg)
+
+        if self.is_valid_encoding(request) and self.is_valid_method(request):
+            request.is_body_readable = True
+
+        image_size = request.content_length or None
+        return {'size': image_size, 'data': request.body_file}
+
+    def stage(self, request):
+        if not CONF.enable_image_import:
+            msg = _("Image import is not supported at this site.")
+            raise webob.exc.HTTPNotFound(explanation=msg)
         try:
             request.get_content_type(('application/octet-stream',))
         except exception.InvalidContentType as e:
@@ -367,6 +482,9 @@ class ResponseSerializer(wsgi.JSONResponseSerializer):
         response.headers['Content-Length'] = six.text_type(chunk_size)
 
     def upload(self, response, result):
+        response.status_int = 204
+
+    def stage(self, response, result):
         response.status_int = 204
 
 

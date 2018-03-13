@@ -49,6 +49,13 @@ Content-Type-patch:
   in: header
   required: true
   type: string
+import-header:
+  description: |
+    A comma separated list of import method identifiers.  Included
+    only if image import is enabled in your cloud.  *Since Image API v2.6*
+  in: header
+  required: false
+  type: string
 Location:
   description: |
     The URL to access the image file from the
@@ -148,6 +155,14 @@ owner-in-query:
   in: query
   required: false
   type: string
+protected-in-query:
+  description: |
+    Filters the response by the 'protected' image property.  A valid value is
+    one of 'true', 'false' (must be all lowercase).  Any other value will
+    result in a 400 response.
+  in: query
+  required: false
+  type: boolean
 size_max:
   description: |
     Filters the response by a maximum image size, in
@@ -256,17 +271,13 @@ checksum:
   type: string
 container_format:
   description: |
-    Format of the image container. A valid value is one of
-    ``ami``, ``ari``, ``aki``, ``bare``, ``ovf``, ``ova``, or
-    ``docker``.  The value might be ``null`` (JSON null data type).
+    |container_format_description|
   in: body
   required: true
   type: enum
 container_format-in-request:
   description: |
-    Format of the image container. A valid value is one of
-    ``ami``, ``ari``, ``aki``, ``bare``, ``ovf``, ``ova``, or
-    ``docker``.
+    |container_format_description|
   in: body
   required: false
   type: enum
@@ -376,6 +387,14 @@ images:
   in: body
   required: true
   type: array
+import-methods:
+  description: |
+    A JSON object containing a ``value`` element, which is an array of
+    string identifiers indicating what import methods are available in
+    the cloud in which the call is made.  This list may be empty.
+  in: body
+  required: true
+  type: object
 locations:
   description: |
     A list of objects, each of which describes an image location.  Each object
@@ -411,6 +430,15 @@ members:
   in: body
   required: true
   type: array
+method-in-request:
+  description: |
+    A JSON object indicating what import method you wish to use to import
+    your image.  The content of this JSON object is another JSON object
+    with a ``name`` field whose value is the identifier for the import
+    method.
+  in: body
+  required: true
+  type: object
 min_disk:
   description: |
     Amount of disk space in GB that is required to boot the image.

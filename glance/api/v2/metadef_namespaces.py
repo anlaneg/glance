@@ -549,6 +549,9 @@ class ResponseSerializer(wsgi.JSONResponseSerializer):
     def delete_properties(self, response, result):
         response.status_int = http.NO_CONTENT
 
+    def delete_tags(self, response, result):
+        response.status_int = http.NO_CONTENT
+
     def __render(self, json_data, response, response_status=None):
         body = jsonutils.dumps(json_data, ensure_ascii=False)
         response.unicode_body = six.text_type(body)
@@ -588,7 +591,7 @@ def get_schema_definitions():
                 "properties": {
                     "name": {
                         "type": "string",
-                        "maxLength": 255
+                        "maxLength": 80
                     },
                     "title": {
                         "type": "string"

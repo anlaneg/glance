@@ -112,11 +112,8 @@ class TaskExecutor(glance.async.TaskExecutor):
     def _get_flow(self, task):
         try:
             task_input = script_utils.unpack_task_input(task)
-            uri = script_utils.validate_location_uri(
-                task_input.get('import_from'))
 
             kwds = {
-                'uri': uri,
                 'task_id': task.task_id,
                 'task_type': task.type,
                 'context': self.context,
@@ -125,6 +122,13 @@ class TaskExecutor(glance.async.TaskExecutor):
                 'image_factory': self.image_factory
             }
 
+            if task.type == "import":
+                uri = script_utils.validate_location_uri(
+                    task_input.get('import_from'))
+                kwds['uri'] = uri
+            if task.type == 'api_image_import':
+                kwds['image_id'] = task_input['image_id']
+                kwds['import_req'] = task_input['import_req']
             return driver.DriverManager('glance.flows', task.type,
                                         invoke_on_load=True,
                                         invoke_kwds=kwds).driver
@@ -167,6 +171,9 @@ class TaskExecutor(glance.async.TaskExecutor):
                 max_workers=CONF.taskflow_executor.max_workers)
             with llistener.DynamicLoggingListener(engine, log=LOG):
                 engine.run()
+        except exception.UploadException as exc:
+            task.fail(encodeutils.exception_to_unicode(exc))
+            self.task_repo.save(task)
         except Exception as exc:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Failed to execute task %(task_id)s: %(exc)s') %

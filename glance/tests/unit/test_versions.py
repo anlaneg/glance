@@ -27,6 +27,65 @@ class VersionsTest(base.IsolatedUnitTest):
 
     """Test the version information returned from the API service."""
 
+    def _get_versions_list(self, url):
+        versions = [
+            {
+                'id': 'v2.6',
+                'status': 'CURRENT',
+                'links': [{'rel': 'self',
+                           'href': '%s/v2/' % url}],
+            },
+            {
+                'id': 'v2.5',
+                'status': 'SUPPORTED',
+                'links': [{'rel': 'self',
+                           'href': '%s/v2/' % url}],
+            },
+            {
+                'id': 'v2.4',
+                'status': 'SUPPORTED',
+                'links': [{'rel': 'self',
+                           'href': '%s/v2/' % url}],
+            },
+            {
+                'id': 'v2.3',
+                'status': 'SUPPORTED',
+                'links': [{'rel': 'self',
+                           'href': '%s/v2/' % url}],
+            },
+            {
+                'id': 'v2.2',
+                'status': 'SUPPORTED',
+                'links': [{'rel': 'self',
+                           'href': '%s/v2/' % url}],
+            },
+            {
+                'id': 'v2.1',
+                'status': 'SUPPORTED',
+                'links': [{'rel': 'self',
+                           'href': '%s/v2/' % url}],
+            },
+            {
+                'id': 'v2.0',
+                'status': 'SUPPORTED',
+                'links': [{'rel': 'self',
+                           'href': '%s/v2/' % url}],
+            },
+            {
+                'id': 'v1.1',
+                'status': 'DEPRECATED',
+                'links': [{'rel': 'self',
+                           'href': '%s/v1/' % url}],
+            },
+            {
+                'id': 'v1.0',
+                'status': 'DEPRECATED',
+                'links': [{'rel': 'self',
+                           'href': '%s/v1/' % url}],
+            },
+        ]
+        return versions
+
     def test_get_version_list(self):
         req = webob.Request.blank('/', base_url='http://127.0.0.1:9292/')
         req.accept = 'application/json'
@@ -35,56 +94,7 @@ class VersionsTest(base.IsolatedUnitTest):
         self.assertEqual(http.MULTIPLE_CHOICES, res.status_int)
         self.assertEqual('application/json', res.content_type)
         results = jsonutils.loads(res.body)['versions']
-        expected = [
-            {
-                'id': 'v2.5',
-                'status': 'CURRENT',
-                'links': [{'rel': 'self',
-                           'href': 'http://127.0.0.1:9292/v2/'}],
-            },
-            {
-                'id': 'v2.4',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://127.0.0.1:9292/v2/'}],
-            },
-            {
-                'id': 'v2.3',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://127.0.0.1:9292/v2/'}],
-            },
-            {
-                'id': 'v2.2',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://127.0.0.1:9292/v2/'}],
-            },
-            {
-                'id': 'v2.1',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://127.0.0.1:9292/v2/'}],
-            },
-            {
-                'id': 'v2.0',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://127.0.0.1:9292/v2/'}],
-            },
-            {
-                'id': 'v1.1',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self',
-                           'href': 'http://127.0.0.1:9292/v1/'}],
-            },
-            {
-                'id': 'v1.0',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self',
-                           'href': 'http://127.0.0.1:9292/v1/'}],
-            },
-        ]
+        expected = self._get_versions_list('http://127.0.0.1:9292')
         self.assertEqual(expected, results)
 
     def test_get_version_list_public_endpoint(self):
@@ -96,177 +106,33 @@ class VersionsTest(base.IsolatedUnitTest):
         self.assertEqual(http.MULTIPLE_CHOICES, res.status_int)
         self.assertEqual('application/json', res.content_type)
         results = jsonutils.loads(res.body)['versions']
-        expected = [
-            {
-                'id': 'v2.5',
-                'status': 'CURRENT',
-                'links': [{'rel': 'self',
-                           'href': 'https://example.com:9292/v2/'}],
-            },
-            {
-                'id': 'v2.4',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://example.com:9292/v2/'}],
-            },
-            {
-                'id': 'v2.3',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://example.com:9292/v2/'}],
-            },
-            {
-                'id': 'v2.2',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://example.com:9292/v2/'}],
-            },
-            {
-                'id': 'v2.1',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://example.com:9292/v2/'}],
-            },
-            {
-                'id': 'v2.0',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://example.com:9292/v2/'}],
-            },
-            {
-                'id': 'v1.1',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self',
-                           'href': 'https://example.com:9292/v1/'}],
-            },
-            {
-                'id': 'v1.0',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self',
-                           'href': 'https://example.com:9292/v1/'}],
-            },
-        ]
+        expected = self._get_versions_list('https://example.com:9292')
         self.assertEqual(expected, results)
 
     def test_get_version_list_secure_proxy_ssl_header(self):
         self.config(secure_proxy_ssl_header='HTTP_X_FORWARDED_PROTO')
-        environ = webob.request.environ_from_url('http://localhost:9292')
+        url = 'http://localhost:9292'
+        environ = webob.request.environ_from_url(url)
         req = WsgiRequest(environ)
         res = versions.Controller().index(req)
         self.assertEqual(http.MULTIPLE_CHOICES, res.status_int)
         self.assertEqual('application/json', res.content_type)
         results = jsonutils.loads(res.body)['versions']
-        expected = [
-            {
-                'id': 'v2.5',
-                'status': 'CURRENT',
-                'links': [{'rel': 'self',
-                           'href': 'http://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.4',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.3',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.2',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.1',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.0',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'http://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v1.1',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self',
-                           'href': 'http://localhost:9292/v1/'}],
-            },
-            {
-                'id': 'v1.0',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self',
-                           'href': 'http://localhost:9292/v1/'}],
-            },
-        ]
+        expected = self._get_versions_list(url)
         self.assertEqual(expected, results)
 
     def test_get_version_list_secure_proxy_ssl_header_https(self):
         self.config(secure_proxy_ssl_header='HTTP_X_FORWARDED_PROTO')
-        environ = webob.request.environ_from_url('http://localhost:9292')
+        url = 'http://localhost:9292'
+        ssl_url = 'https://localhost:9292'
+        environ = webob.request.environ_from_url(url)
         environ['HTTP_X_FORWARDED_PROTO'] = "https"
         req = WsgiRequest(environ)
         res = versions.Controller().index(req)
         self.assertEqual(http.MULTIPLE_CHOICES, res.status_int)
         self.assertEqual('application/json', res.content_type)
         results = jsonutils.loads(res.body)['versions']
-        expected = [
-            {
-                'id': 'v2.5',
-                'status': 'CURRENT',
-                'links': [{'rel': 'self',
-                           'href': 'https://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.4',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.3',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.2',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.1',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v2.0',
-                'status': 'SUPPORTED',
-                'links': [{'rel': 'self',
-                           'href': 'https://localhost:9292/v2/'}],
-            },
-            {
-                'id': 'v1.1',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self',
-                           'href': 'https://localhost:9292/v1/'}],
-            },
-            {
-                'id': 'v1.0',
-                'status': 'DEPRECATED',
-                'links': [{'rel': 'self',
-                           'href': 'https://localhost:9292/v1/'}],
-            },
-        ]
+        expected = self._get_versions_list(ssl_url)
         self.assertEqual(expected, results)
 
 
@@ -332,13 +198,19 @@ class VersionNegotiationTest(base.IsolatedUnitTest):
         self.middleware.process_request(request)
         self.assertEqual('/v2/images', request.path_info)
 
-    def test_request_url_v2_6_unsupported(self):
+    def test_request_url_v2_6(self):
         request = webob.Request.blank('/v2.6/images')
+        self.middleware.process_request(request)
+        self.assertEqual('/v2/images', request.path_info)
+
+    def test_request_url_v2_7_unsupported(self):
+        request = webob.Request.blank('/v2.7/images')
         resp = self.middleware.process_request(request)
         self.assertIsInstance(resp, versions.Controller)
 
-    def test_request_url_v4_unsupported(self):
-        request = webob.Request.blank('/v4/images')
+    def test_request_url_v2_7_unsupported_EXPERIMENTAL(self):
+        request = webob.Request.blank('/v2.7/images')
+        self.config(enable_image_import=True)
         resp = self.middleware.process_request(request)
         self.assertIsInstance(resp, versions.Controller)
 
@@ -379,5 +251,10 @@ class VersionsAndNegotiationTest(VersionNegotiationTest, VersionsTest):
 
     def test_deprecated_is_negotiated(self):
         to_check = self._get_list_of_version_ids('DEPRECATED')
+        for version_id in to_check:
+            self._assert_version_is_negotiated(version_id)
+
+    def test_experimental_is_negotiated(self):
+        to_check = self._get_list_of_version_ids('EXPERIMENTAL')
         for version_id in to_check:
             self._assert_version_is_negotiated(version_id)

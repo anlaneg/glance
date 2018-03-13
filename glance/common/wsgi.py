@@ -28,7 +28,6 @@ import signal
 import sys
 import time
 
-import eventlet
 from eventlet.green import socket
 from eventlet.green import ssl
 import eventlet.greenio
@@ -41,7 +40,6 @@ from oslo_serialization import jsonutils
 from oslo_utils import encodeutils
 from oslo_utils import strutils
 from osprofiler import opts as profiler_opts
-import routes
 import routes.middleware
 import six
 import webob.dec
@@ -209,7 +207,10 @@ Number of Glance worker processes to start.
 
 Provide a non-negative integer value to set the number of child
 process workers to service requests. By default, the number of CPUs
-available is set as the value for ``workers``.
+available is set as the value for ``workers`` limited to 8. For
+example if the processor count is 6, 6 workers will be used, if the
+processor count is 24 only 8 workers will be used. The limit will only
+apply to the default value, if 24 workers is configured, 24 is used.
 
 Each worker process is made to listen on the port set in the
 configuration file and contains a greenthread pool of size 1000.
@@ -322,12 +323,22 @@ profiler_opts.set_defaults(CONF)
 
 ASYNC_EVENTLET_THREAD_POOL_LIST = []
 
+# Detect if we're running under the uwsgi server
+try:
+    import uwsgi
+    LOG.debug('Detected running under uwsgi')
+except ImportError:
+    LOG.debug('Detected not running under uwsgi')
+    uwsgi = None
+
 
 def get_num_workers():
     """Return the configured number of workers."""
     if CONF.workers is None:
-        # None implies the number of CPUs
-        return processutils.get_worker_count()
+        # None implies the number of CPUs limited to 8
+        # See Launchpad bug #1748916 and the config help text
+        workers = processutils.get_worker_count()
+        return workers if workers < 8 else 8
     return CONF.workers
 
 
@@ -493,6 +504,7 @@ class Server(object):
         """Kills the entire process group."""
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGCHLD, signal.SIG_IGN)
         self.running = False
         os.killpg(self.pgid, signal.SIGTERM)
 
@@ -931,6 +943,31 @@ class Router(object):
         return app
 
 
+class _UWSGIChunkFile(object):
+
+    def read(self, length=None):
+        position = 0
+        if length == 0:
+            return b""
+
+        if length and length < 0:
+            length = None
+
+        response = []
+        while True:
+            data = uwsgi.chunked_read()
+            # Return everything if we reached the end of the file
+            if not data:
+                break
+            response.append(data)
+            # Return the data if we've reached the length
+            if length is not None:
+                position += len(data)
+                if position >= length:
+                    break
+        return b''.join(response)
+
+
 class Request(webob.Request):
     """Add some OpenStack API-specific logic to the base webob.Request."""
 
@@ -940,6 +977,39 @@ class Request(webob.Request):
             if scheme:
                 environ['wsgi.url_scheme'] = scheme
         super(Request, self).__init__(environ, *args, **kwargs)
+
+    @property
+    def body_file(self):
+        if uwsgi:
+            if self.headers.get('transfer-encoding', '').lower() == 'chunked':
+                return _UWSGIChunkFile()
+        return super(Request, self).body_file
+
+    @body_file.setter
+    def body_file(self, value):
+        # NOTE(cdent): If you have a property setter in a superclass, it will
+        # not be inherited.
+        webob.Request.body_file.fset(self, value)
+
+    @property
+    def params(self):
+        """Override params property of webob.request.BaseRequest.
+
+        Added an 'encoded_params' attribute in case of PY2 to avoid
+        encoding values in next subsequent calls to the params property.
+        """
+        if six.PY2:
+            encoded_params = getattr(self, 'encoded_params', None)
+            if encoded_params is None:
+                params = super(Request, self).params
+                params_dict = multidict.MultiDict()
+                for key, value in params.items():
+                    params_dict.add(key, encodeutils.safe_encode(value))
+
+                setattr(self, 'encoded_params',
+                        multidict.NestedMultiDict(params_dict))
+            return self.encoded_params
+        return super(Request, self).params
 
     def best_match_content_type(self):
         """Determine the requested response content-type."""
@@ -1177,6 +1247,10 @@ class Resource(object):
                           encodeutils.exception_to_unicode(e))
             response = webob.exc.HTTPInternalServerError()
             return response
+
+        # We cannot serialize an Exception, so return the action_result
+        if isinstance(action_result, Exception):
+            return action_result
 
         try:
             #进行响应

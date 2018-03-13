@@ -61,7 +61,7 @@ LOG = logging.getLogger(__name__)
 
 
 STATUSES = ['active', 'saving', 'queued', 'killed', 'pending_delete',
-            'deleted', 'deactivated']
+            'deleted', 'deactivated', 'importing', 'uploading']
 
 CONF = cfg.CONF
 CONF.import_group("profiler", "glance.common.wsgi")
@@ -785,7 +785,7 @@ def _image_update(context, values, image_id, purge_props=False,
 
         location_data = values.pop('locations', None)
 
-        new_status = values.get('status', None)
+        new_status = values.get('status')
         if image_id:
             image_ref = _image_get(context, image_id, session=session)
             current = image_ref.status
@@ -1074,6 +1074,7 @@ def _image_property_delete_all(context, image_id, delete_time=None,
     return props_updated_count
 
 
+@utils.no_4byte_params
 def image_member_create(context, values, session=None):
     """Create an ImageMember object."""
     memb_ref = models.ImageMember()
@@ -1472,9 +1473,9 @@ def _task_soft_delete(context, session=None):
     query = session.query(models.Task)
 
     query = (query.filter(models.Task.owner == context.owner)
-                  .filter_by(deleted=0)
+                  .filter_by(deleted=False)
                   .filter(expires_at <= timeutils.utcnow()))
-    values = {'deleted': 1, 'deleted_at': timeutils.utcnow()}
+    values = {'deleted': True, 'deleted_at': timeutils.utcnow()}
 
     with session.begin():
         query.update(values)

@@ -29,6 +29,12 @@ from oslo_utils import encodeutils
 
 
 # Monkey patch socket, time, select, threads
+# NOTE(jokke): As per the eventlet commit
+# b756447bab51046dfc6f1e0e299cc997ab343701 there's circular import happening
+# which can be solved making sure the hubs are properly and fully imported
+# before calling monkey_patch(). This is solved in eventlet 0.22.0 but we
+# need to address it before that is widely used around.
+eventlet.hubs.get_hub()
 eventlet.patcher.monkey_patch(all=False, socket=True, time=True,
                               select=True, thread=True, os=True)
 
@@ -43,9 +49,7 @@ if os.path.exists(os.path.join(possible_topdir, 'glance', '__init__.py')):
 import glance_store
 from oslo_config import cfg
 from oslo_log import log as logging
-import oslo_messaging
-import osprofiler.notifier
-import osprofiler.web
+import osprofiler.initializer
 
 from glance.common import config
 from glance.common import exception
@@ -77,16 +81,14 @@ def main():
         logging.setup(CONF, 'glance')
         notifier.set_defaults()
 
-        if cfg.CONF.profiler.enabled:
-            _notifier = osprofiler.notifier.create("Messaging",
-                                                   oslo_messaging, {},
-                                                   notifier.get_transport(),
-                                                   "glance", "api",
-                                                   cfg.CONF.bind_host)
-            osprofiler.notifier.set(_notifier)
-            osprofiler.web.enable(cfg.CONF.profiler.hmac_keys)
-        else:
-            osprofiler.web.disable()
+        if CONF.profiler.enabled:
+            osprofiler.initializer.init_from_conf(
+                conf=CONF,
+                context={},
+                project="glance",
+                service="api",
+                host=CONF.bind_host
+            )
 
         server = wsgi.Server(initialize_glance_store=True)
         server.start(config.load_paste_app('glance-api'), default_port=9292)
